@@ -18,6 +18,7 @@ export const AuditLogsPage: React.FC = () => {
 
   // Selected Log Modal for JSON payload
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     loadLogs();
@@ -25,6 +26,7 @@ export const AuditLogsPage: React.FC = () => {
 
   const loadLogs = async () => {
     setLoading(true);
+    setAccessDenied(false);
     try {
       const data = await api.audit.list({
         entity: entityFilter !== 'All' ? entityFilter : undefined,
@@ -32,8 +34,12 @@ export const AuditLogsPage: React.FC = () => {
         limit: 100
       });
       setLogs(data);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        setAccessDenied(true);
+      } else {
+        console.error(err);
+      }
     } finally {
       setLoading(false);
     }
@@ -82,6 +88,18 @@ export const AuditLogsPage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {accessDenied && (
+        <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 space-y-2">
+          <div className="flex items-center space-x-2 font-bold text-sm">
+            <ShieldCheck className="w-5 h-5 text-amber-500" />
+            <span>Audit Trail Restricted to Club Governance</span>
+          </div>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
+            Per institutional club policy and compliance guidelines, the global audit ledger is accessible to the <strong>President</strong>, <strong>Vice President</strong>, <strong>Treasurer</strong>, <strong>Faculty Coordinator</strong>, and <strong>Technical Lead</strong>.
+          </p>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs space-y-3">

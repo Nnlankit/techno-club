@@ -13,7 +13,7 @@ from app.models.event_hackathon import Event, EventRegistration, EventAttendance
 from app.models.project_task import Project, Task, Activity
 from app.models.operations import (
     ApprovalProposal, Budget, Expense, Sponsor, Certificate, 
-    Achievement, Announcement, Notification
+    Achievement, Announcement, Notification, Resource, Document, AuditLog
 )
 from app.schemas.analytics import DashboardStatsResponse, MemberDashboardStatsResponse
 
@@ -233,6 +233,43 @@ def export_csv_report(
                 t.id, t.title, t.project.name if t.project else "",
                 t.domain.name if t.domain else "", t.assignee.full_name if t.assignee else "Unassigned",
                 t.priority, t.status, t.due_date.isoformat() if t.due_date else ""
+            ])
+    elif entity == "projects":
+        writer.writerow(["ID", "Name", "Domain", "Lead", "Priority", "Status", "Target Date", "Members Count"])
+        projects = db.query(Project).all()
+        for p in projects:
+            writer.writerow([
+                p.id, p.name, p.domain.name if p.domain else "Club-Wide",
+                p.lead.full_name if p.lead else "Unassigned",
+                p.priority, p.status, p.target_date.isoformat() if p.target_date else "",
+                len(p.members)
+            ])
+    elif entity == "sponsors":
+        writer.writerow(["ID", "Company Name", "Contact Person", "Email", "Tier", "Stage", "Amount", "MOU Signed", "Payment Status"])
+        sponsors = db.query(Sponsor).all()
+        for s in sponsors:
+            writer.writerow([
+                s.id, s.company_name, s.contact_person, s.email,
+                s.tier, s.stage, s.amount, "Yes" if s.mou_signed else "No", s.payment_status
+            ])
+    elif entity == "attendance":
+        writer.writerow(["ID", "Event ID", "Event Name", "Attendee Name", "Email", "Status", "Attended At"])
+        records = db.query(EventAttendance).all()
+        for a in records:
+            writer.writerow([
+                a.id, a.event_id, a.event.name if a.event else "",
+                a.member.full_name if a.member else "Guest",
+                a.member.email if a.member else "",
+                a.status, a.attended_at.isoformat() if a.attended_at else ""
+            ])
+    elif entity == "audit":
+        writer.writerow(["ID", "Timestamp", "User Email", "Role", "Action", "Entity", "Entity ID", "Description", "IP Address"])
+        audits = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(500).all()
+        for al in audits:
+            writer.writerow([
+                al.id, al.timestamp.isoformat() if al.timestamp else "",
+                al.user_email, al.role, al.action, al.entity, al.entity_id or "",
+                al.description, al.ip_address or ""
             ])
     else:
         raise HTTPException(status_code=400, detail="Invalid entity for CSV export")
