@@ -62,7 +62,17 @@ export const StatCard: React.FC<StatCardProps> = ({
   };
 
   const style = colorStyles[color] || colorStyles.indigo;
-  const IconComponent = typeof icon === 'function' ? (icon as LucideIcon) : null;
+
+  const renderIcon = () => {
+    if (React.isValidElement(icon)) {
+      return icon;
+    }
+    if (icon) {
+      const Component = icon as React.ElementType;
+      return <Component className="w-5 h-5" />;
+    }
+    return null;
+  };
 
   return (
     <div
@@ -76,7 +86,7 @@ export const StatCard: React.FC<StatCardProps> = ({
           {title}
         </span>
         <div className={`p-2.5 rounded-xl ${style.iconBg}`}>
-          {IconComponent ? <IconComponent className="w-5 h-5" /> : (icon as React.ReactNode)}
+          {renderIcon()}
         </div>
       </div>
       <div className="mt-4 flex items-baseline justify-between">
