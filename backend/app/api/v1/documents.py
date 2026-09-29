@@ -7,13 +7,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_roles
 from app.models.user_role import User
 from app.models.member_domain import Member, Domain
 from app.models.event_hackathon import Event
 from app.models.project_task import Project
 from app.models.operations import Document
-from app.schemas.operations import DocumentResponse
+from app.schemas.operations import DocumentResponse, DocumentUpdate
 from app.services.audit_service import log_audit_event
 
 router = APIRouter()
@@ -107,3 +107,59 @@ def upload_document(
     db.commit()
     db.refresh(doc)
     return build_doc_response(doc)
+
+
+@router.put("/{document_id}", response_model=DocumentResponse)
+def update_document(
+    document_id: int,
+    payload: DocumentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        setattr(doc, k, v)
+
+    log_audit_event(
+        db, current_user, "UPDATE_DOCUMENT", "Document", doc.id,
+        f"Document '{doc.title}' updated by {current_user.email}",
+        diff=update_data
+    )
+
+    db.commit()
+    db.refresh(doc)
+    return build_doc_response(doc)
+
+
+@router.delete("/{document_id}")
+def delete_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    doc = db.query(Document).filter(Document.id == document_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Attempt to remove physical file
+    try:
+        if doc.file_path and doc.file_path.startswith("/static/uploads/"):
+            filename = doc.file_path.replace("/static/uploads/", "")
+            file_dest = os.path.join(settings.UPLOAD_DIR, filename)
+            if os.path.exists(file_dest):
+                os.remove(file_dest)
+    except Exception:
+        pass
+
+    log_audit_event(
+        db, current_user, "DELETE_DOCUMENT", "Document", doc.id,
+        f"Document '{doc.title}' ({doc.file_name}) deleted by {current_user.email}"
+    )
+
+    db.delete(doc)
+    db.commit()
+    return {"message": f"Document '{doc.title}' deleted successfully"}

@@ -7,7 +7,7 @@ from app.core.deps import get_current_user, require_roles
 from app.models.user_role import User
 from app.models.member_domain import Member, Domain
 from app.models.operations import Announcement
-from app.schemas.operations import AnnouncementCreate, AnnouncementResponse
+from app.schemas.operations import AnnouncementCreate, AnnouncementUpdate, AnnouncementResponse
 from app.services.notification_service import broadcast_notification_to_all
 from app.services.audit_service import log_audit_event
 
@@ -84,3 +84,49 @@ def create_announcement(
     db.commit()
     db.refresh(a)
     return build_announcement_response(a)
+
+
+@router.put("/{announcement_id}", response_model=AnnouncementResponse)
+def update_announcement(
+    announcement_id: int,
+    payload: AnnouncementUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    a = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        setattr(a, k, v)
+
+    log_audit_event(
+        db, current_user, "UPDATE", "Announcement", a.id,
+        f"Announcement '{a.title}' updated by {current_user.email}",
+        diff=update_data
+    )
+
+    db.commit()
+    db.refresh(a)
+    return build_announcement_response(a)
+
+
+@router.delete("/{announcement_id}")
+def delete_announcement(
+    announcement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    a = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+
+    log_audit_event(
+        db, current_user, "DELETE", "Announcement", a.id,
+        f"Announcement '{a.title}' deleted by {current_user.email}"
+    )
+
+    db.delete(a)
+    db.commit()
+    return {"message": f"Announcement '{a.title}' deleted successfully"}

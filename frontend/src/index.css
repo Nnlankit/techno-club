@@ -3,12 +3,27 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --sand-bg: #FAF7F2;
+    --sand-surface: #FFFFFF;
+    --sand-border: #E8E1D5;
+    --sand-text-primary: #231D17;
+    --sand-text-secondary: #7D7162;
+  }
+
   body {
-    @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 font-sans antialiased;
+    background-color: #FAF7F2;
+    color: #231D17;
+    @apply font-sans antialiased;
+  }
+
+  /* Accessible focus rings in warm sand-amber tone */
+  :focus-visible {
+    @apply outline-none ring-2 ring-amber-600/50 ring-offset-2 ring-offset-[#FAF7F2] dark:ring-offset-slate-900;
   }
 }
 
-/* Custom modern scrollbar */
+/* Custom sleek modern scrollbar in warm sand */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -17,8 +32,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+  background-color: #D7CCBC;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-400 dark:bg-slate-600;
+  background-color: #A89C8A;
 }

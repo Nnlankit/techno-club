@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Compass, Plus, Search, Calendar, MapPin, 
-  Users, CheckCircle2, DollarSign, Filter, BookOpen, Sparkles
+  Users, CheckCircle2, DollarSign, Filter, BookOpen, Sparkles,
+  Edit3, Trash2
 } from 'lucide-react';
 import { api } from '../services/api';
 import { Activity, Domain, Member } from '../types';
-import { StatusBadge } from '../components/StatusBadge';
-import { Modal } from '../components/Modal';
-import { StatCard } from '../components/StatCard';
+import { 
+  Button, Badge, Modal, PageHeader, EmptyState, LoadingState, Card, Avatar,
+  ConfirmationDialog, Toast
+} from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 
 const ACTIVITY_TYPES = [
@@ -48,9 +50,103 @@ export const ActivitiesPage: React.FC = () => {
   const [budget, setBudget] = useState('500');
   const [outcomes, setOutcomes] = useState('');
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // Edit Activity State
+  const [editingActivity, setEditingActivity] = useState<Activity | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editType, setEditType] = useState('Recruitment Drive');
+  const [editDescription, setEditDescription] = useState('');
+  const [editDomainId, setEditDomainId] = useState<number | undefined>(undefined);
+  const [editCoordinatorId, setEditCoordinatorId] = useState<number | undefined>(undefined);
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [editVenue, setEditVenue] = useState('Auditorium Hall B');
+  const [editBudget, setEditBudget] = useState('500');
+  const [editStatus, setEditStatus] = useState('Active');
+  const [editOutcomes, setEditOutcomes] = useState('');
+
+  // Delete State
+  const [activityToDelete, setActivityToDelete] = useState<Activity | null>(null);
+
+  // Toast
+  const [toast, setToast] = useState<{
+    type: 'success' | 'error' | 'info' | 'warning';
+    title?: string;
+    message: string;
+  } | null>(null);
+
+  const handleOpenEdit = (act: Activity) => {
+    setEditingActivity(act);
+    setEditTitle(act.title);
+    setEditType(act.activity_type);
+    setEditDescription(act.description);
+    setEditDomainId(act.domain_id || undefined);
+    setEditCoordinatorId(act.coordinator_id || undefined);
+    setEditStartDate(act.start_date ? act.start_date.slice(0, 10) : '');
+    setEditEndDate(act.end_date ? act.end_date.slice(0, 10) : '');
+    setEditVenue(act.venue || '');
+    setEditBudget(String(act.budget || 0));
+    setEditStatus(act.status);
+    setEditOutcomes(act.outcomes || '');
+    setShowEditModal(true);
+  };
+
+  const handleUpdateActivity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingActivity) return;
+    try {
+      await api.activities.update(editingActivity.id, {
+        title: editTitle,
+        activity_type: editType,
+        description: editDescription,
+        domain_id: editDomainId,
+        coordinator_id: editCoordinatorId,
+        start_date: editStartDate ? new Date(editStartDate).toISOString() : undefined,
+        end_date: editEndDate ? new Date(editEndDate).toISOString() : undefined,
+        venue: editVenue,
+        budget: Number(editBudget) || 0,
+        status: editStatus,
+        outcomes: editOutcomes,
+      });
+
+      setShowEditModal(false);
+      setEditingActivity(null);
+      setToast({
+        type: 'success',
+        title: 'Activity Updated',
+        message: `"${editTitle}" updated successfully.`
+      });
+      setTimeout(() => setToast(null), 4000);
+      loadData();
+    } catch (err: any) {
+      setToast({
+        type: 'error',
+        title: 'Update Failed',
+        message: err.response?.data?.detail || 'Failed to update activity'
+      });
+    }
+  };
+
+  const handleDeleteActivity = async () => {
+    if (!activityToDelete) return;
+    try {
+      await api.activities.delete(activityToDelete.id);
+      setToast({
+        type: 'info',
+        title: 'Activity Removed',
+        message: `"${activityToDelete.title}" initiative was deleted.`
+      });
+      setTimeout(() => setToast(null), 4000);
+      setActivityToDelete(null);
+      loadData();
+    } catch (err: any) {
+      setToast({
+        type: 'error',
+        title: 'Delete Failed',
+        message: err.response?.data?.detail || 'Failed to delete activity'
+      });
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -69,6 +165,10 @@ export const ActivitiesPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const handleCreateActivity = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -129,192 +229,219 @@ export const ActivitiesPage: React.FC = () => {
   const completedCount = activities.filter(a => a.status === 'Completed').length;
   const totalParticipants = activities.reduce((acc, a) => acc + (a.participants_count || 0), 0);
 
+  const canManageActivities = hasRole(['President', 'Vice President', 'Domain Head']);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
-            <span>Special Initiatives & Club Activities</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-              {activities.length} Initiatives
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Recruitment cycles, orientation bootcamps, open innovation sandboxes, and social impact technical outreach.
-          </p>
-        </div>
-        {hasRole(['President', 'Vice President', 'Domain Head']) && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Launch Initiative</span>
-          </button>
-        )}
-      </div>
+      {/* Section 9 Page Header */}
+      <PageHeader
+        title="Activities"
+        description="Recruitment drives, internal training programs, open innovation sandboxes, and social impact outreach."
+        searchProps={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: 'Search initiatives by title, venue, outcomes...'
+        }}
+        filterProps={{
+          filters: [
+            {
+              key: 'type',
+              label: 'Initiative Type',
+              value: selectedType,
+              onChange: setSelectedType,
+              options: ACTIVITY_TYPES.map(t => ({ label: t, value: t }))
+            }
+          ]
+        }}
+        primaryAction={
+          canManageActivities
+            ? {
+                label: 'Create Activity',
+                icon: <Plus className="w-4 h-4" />,
+                onClick: () => setShowAddModal(true)
+              }
+            : undefined
+        }
+      />
 
-      {/* KPI Cards */}
+      {/* KPI Cards (Section 11) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard
-          title="Active Initiatives"
-          value={activeCount.toString()}
-          subtitle="Currently running across domains"
-          icon={<Compass className="w-5 h-5 text-indigo-500" />}
-          color="indigo"
-        />
-        <StatCard
-          title="Completed Programs"
-          value={completedCount.toString()}
-          subtitle="Documented with reports & outcomes"
-          icon={<CheckCircle2 className="w-5 h-5 text-emerald-500" />}
-          color="emerald"
-        />
-        <StatCard
-          title="Campus Footprint"
-          value={`${totalParticipants}+`}
-          subtitle="Students engaged in open programs"
-          icon={<Users className="w-5 h-5 text-purple-500" />}
-          color="purple"
-        />
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Active Initiatives</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 flex items-center justify-center">
+              <Compass className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">
+            {activeCount}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">Bootcamps & drives in progress</p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Completed Programs</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 flex items-center justify-center">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
+            {completedCount}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">Successfully concluded club initiatives</p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Total Participants</span>
+            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400 flex items-center justify-center">
+              <Users className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
+            {totalParticipants}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">Engaged student technologist headcount</p>
+        </Card>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
-            {ACTIVITY_TYPES.map(type => (
-              <button
-                key={type}
-                onClick={() => setSelectedType(type)}
-                className={`text-xs px-3 py-1.5 rounded-lg transition-colors font-medium ${
-                  selectedType === type
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {type}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative min-w-[240px]">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search initiative title, venue..."
-              className="w-full text-xs pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Activities Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? (
-          <div className="col-span-full py-16 text-center text-slate-400 text-xs">
-            Loading initiatives catalog...
-          </div>
-        ) : filteredActivities.length === 0 ? (
-          <div className="col-span-full py-16 text-center text-slate-400 text-xs">
-            No initiatives found matching filters.
-          </div>
-        ) : (
-          filteredActivities.map((act) => (
-            <div
+      {/* Main Grid */}
+      {loading ? (
+        <LoadingState message="Loading club activities and outreach programs..." />
+      ) : filteredActivities.length === 0 ? (
+        <EmptyState
+          title="No Activities Found"
+          description="No club initiatives matched your search. Plan a new drive or campaign."
+          action={
+            canManageActivities
+              ? {
+                  label: 'Create Activity',
+                  icon: <Plus className="w-4 h-4" />,
+                  onClick: () => setShowAddModal(true)
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredActivities.map((act) => (
+            <Card
               key={act.id}
-              className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all flex flex-col justify-between space-y-3"
+              className="p-5 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all flex flex-col justify-between shadow-xs space-y-4"
             >
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                  <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
                     {act.activity_type}
                   </span>
-                  <StatusBadge status={act.status} />
+                  <div className="flex items-center space-x-1.5">
+                    <Badge status={act.status} />
+                    {canManageActivities && (
+                      <div className="flex items-center space-x-1 ml-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleOpenEdit(act)}
+                          className="p-1 rounded text-slate-400 hover:text-amber-600 transition-colors"
+                          title="Edit Activity"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setActivityToDelete(act)}
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 transition-colors"
+                          title="Delete Activity"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white leading-tight">
-                  {act.title}
-                </h3>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {act.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                    {act.description}
+                  </p>
+                </div>
 
-                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-3 leading-relaxed">
-                  {act.description}
-                </p>
-
-                {act.outcomes && (
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-lg text-[11px] text-slate-600 dark:text-slate-300">
-                    <strong className="text-indigo-600 dark:text-indigo-400">Target Outcome:</strong> {act.outcomes}
+                <div className="space-y-1.5 text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{new Date(act.start_date).toLocaleDateString()} — {new Date(act.end_date).toLocaleDateString()}</span>
                   </div>
-                )}
-              </div>
-
-              <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center space-x-1">
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>{new Date(act.start_date).toLocaleDateString()}</span>
-                  </span>
                   {act.venue && (
-                    <span className="flex items-center space-x-1">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>{act.venue}</span>
-                    </span>
+                    <div className="flex items-center space-x-2 truncate">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{act.venue}</span>
+                    </div>
+                  )}
+                  {act.coordinator_name && (
+                    <div className="flex items-center space-x-2 pt-1">
+                      <Avatar name={act.coordinator_name} size="xs" />
+                      <div>
+                        <span className="text-[11px] text-slate-400">Lead:</span>{' '}
+                        <strong className="text-slate-800 dark:text-slate-200">{act.coordinator_name}</strong>
+                      </div>
+                    </div>
                   )}
                 </div>
-
-                <div className="flex items-center justify-between">
-                  <span>Coordinator: <strong className="text-slate-700 dark:text-slate-300">{act.coordinator_name || 'Assigned'}</strong></span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">${act.budget} Budget</span>
-                </div>
-
-                {hasRole(['President', 'Vice President', 'Domain Head']) && act.status === 'Active' && (
-                  <button
-                    onClick={() => handleUpdateStatus(act.id, 'Completed')}
-                    className="w-full mt-2 py-1 px-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:hover:bg-emerald-900 dark:text-emerald-300 text-xs font-semibold flex items-center justify-center space-x-1 transition-colors"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Mark Initiative Completed</span>
-                  </button>
-                )}
               </div>
-            </div>
-          ))
-        )}
-      </div>
 
-      {/* Launch Initiative Modal */}
+              {canManageActivities && (
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <span className="text-xs text-slate-400">Status Control:</span>
+                  <select
+                    value={act.status}
+                    onChange={(e) => handleUpdateStatus(act.id, e.target.value)}
+                    className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium"
+                  >
+                    <option value="Planned">Planned</option>
+                    <option value="Active">Active</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Create Activity Modal */}
       <Modal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        title="Launch Club Activity / Initiative"
+        title="Plan New Club Initiative"
+        subtitle="Schedules bootcamps, recruitment drives, whitepapers, or community workshops"
+        maxWidth="md"
       >
         <form onSubmit={handleCreateActivity} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Initiative Title *
+              Initiative Title
             </label>
             <input
               type="text"
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Fall 2026 Technologist Recruitment & Orientation Drive"
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="e.g. Fall 2026 Core Technologist Recruitment Drive"
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Activity Type *
+                Activity Type
               </label>
               <select
                 value={activityType}
                 onChange={(e) => setActivityType(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {ACTIVITY_TYPES.filter(t => t !== 'All').map(t => (
                   <option key={t} value={t}>{t}</option>
@@ -323,16 +450,16 @@ export const ActivitiesPage: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Lead Domain
+                Domain (Optional)
               </label>
               <select
                 value={domainId || ''}
                 onChange={(e) => setDomainId(e.target.value ? Number(e.target.value) : undefined)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">Club-wide Initiative</option>
+                <option value="">Club Wide / Cross-Domain</option>
                 {domains.map(d => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
+                  <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
                 ))}
               </select>
             </div>
@@ -341,14 +468,14 @@ export const ActivitiesPage: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Start Date *
+                Start Date
               </label>
               <input
                 type="date"
                 required
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -359,7 +486,7 @@ export const ActivitiesPage: React.FC = () => {
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -367,74 +494,273 @@ export const ActivitiesPage: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Venue / Campus Hub
+                Venue
               </label>
               <input
                 type="text"
                 value={venue}
                 onChange={(e) => setVenue(e.target.value)}
                 placeholder="Auditorium Hall B"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Approved Budget ($)
+                Budget Allocation (₹)
               </label>
               <input
                 type="number"
-                min="0"
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                placeholder="500"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Description & Scope
+              Description & Objectives
             </label>
             <textarea
-              rows={2}
+              rows={3}
               required
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Provide context, target participants, and execution plan..."
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="Target attendees, expected deliverables, student recruitment goals..."
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Expected Outcomes & Deliverables
-            </label>
-            <textarea
-              rows={2}
-              value={outcomes}
-              onChange={(e) => setOutcomes(e.target.value)}
-              placeholder="e.g. Onboard 40 first-year student developers into domain learning tracks."
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-            />
-          </div>
-
-          <div className="flex justify-end space-x-2 pt-3">
-            <button
+          <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setShowAddModal(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              variant="primary"
             >
-              Launch Initiative
-            </button>
+              Schedule Initiative
+            </Button>
           </div>
         </form>
       </Modal>
+
+      {/* Edit Activity Modal */}
+      {showEditModal && editingActivity && (
+        <Modal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingActivity(null);
+          }}
+          title={`Edit Initiative: ${editingActivity.title}`}
+          subtitle="Modify initiative dates, venue, budget, or outcomes"
+          maxWidth="md"
+        >
+          <form onSubmit={handleUpdateActivity} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Initiative Title
+              </label>
+              <input
+                type="text"
+                required
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Activity Type
+                </label>
+                <select
+                  value={editType}
+                  onChange={(e) => setEditType(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {ACTIVITY_TYPES.filter(t => t !== 'All').map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Domain (Optional)
+                </label>
+                <select
+                  value={editDomainId || ''}
+                  onChange={(e) => setEditDomainId(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Club Wide / Cross-Domain</option>
+                  {domains.map(d => (
+                    <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Start Date
+                </label>
+                <input
+                  type="date"
+                  value={editStartDate}
+                  onChange={(e) => setEditStartDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={editEndDate}
+                  onChange={(e) => setEditEndDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Venue
+                </label>
+                <input
+                  type="text"
+                  value={editVenue}
+                  onChange={(e) => setEditVenue(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Budget Allocation (₹)
+                </label>
+                <input
+                  type="number"
+                  value={editBudget}
+                  onChange={(e) => setEditBudget(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Status
+                </label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Planned">Planned</option>
+                  <option value="Active">Active</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Lead Coordinator
+                </label>
+                <select
+                  value={editCoordinatorId || ''}
+                  onChange={(e) => setEditCoordinatorId(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">None / Open</option>
+                  {members.map(m => (
+                    <option key={m.id} value={m.id}>{m.full_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Description & Objectives
+              </label>
+              <textarea
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Outcomes & Impact
+              </label>
+              <textarea
+                rows={2}
+                value={editOutcomes}
+                onChange={(e) => setEditOutcomes(e.target.value)}
+                placeholder="Key takeaways, attendees reached, achievements..."
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingActivity(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+              >
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={!!activityToDelete}
+        title="Delete Initiative"
+        message={`Are you sure you want to delete "${activityToDelete?.title}"? Completed activities should typically remain recorded in club records.`}
+        confirmLabel="Delete Initiative"
+        confirmVariant="danger"
+        onConfirm={handleDeleteActivity}
+        onCancel={() => setActivityToDelete(null)}
+      />
+
+      {/* Toast Notification Container */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-slide-up max-w-sm">
+          <Toast
+            type={toast.type}
+            title={toast.title}
+            message={toast.message}
+            onClose={() => setToast(null)}
+          />
+        </div>
+      )}
     </div>
   );
 };

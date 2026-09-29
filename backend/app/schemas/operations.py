@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 
 # Approvals
@@ -38,8 +38,7 @@ class ApprovalProposalResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Meetings
@@ -90,8 +89,7 @@ class MeetingResponse(BaseModel):
     status: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Resources
@@ -141,8 +139,7 @@ class ResourceResponse(BaseModel):
     notes: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Finance
@@ -168,8 +165,7 @@ class BudgetResponse(BaseModel):
     notes: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ExpenseCreate(BaseModel):
@@ -205,8 +201,7 @@ class ExpenseResponse(BaseModel):
     notes: Optional[str] = None
     date_incurred: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Sponsors
@@ -260,8 +255,7 @@ class SponsorResponse(BaseModel):
     notes: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Certificates
@@ -274,6 +268,15 @@ class CertificateCreate(BaseModel):
     event_id: Optional[int] = None
     hackathon_id: Optional[int] = None
     metadata_info: Optional[Dict[str, Any]] = {}
+
+
+class CertificateUpdate(BaseModel):
+    title: Optional[str] = None
+    certificate_type: Optional[str] = None
+    recipient_name: Optional[str] = None
+    recipient_email: Optional[EmailStr] = None
+    status: Optional[str] = None
+    metadata_info: Optional[Dict[str, Any]] = None
 
 
 class CertificateResponse(BaseModel):
@@ -292,8 +295,7 @@ class CertificateResponse(BaseModel):
     status: str
     metadata_info: Dict[str, Any] = {}
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CertificateVerifyResponse(BaseModel):
@@ -301,11 +303,15 @@ class CertificateVerifyResponse(BaseModel):
     certificate_id: Optional[str] = None
     title: Optional[str] = None
     recipient_name: Optional[str] = None
+    recipient_email: Optional[str] = None
     certificate_type: Optional[str] = None
     issue_date: Optional[datetime] = None
     status: Optional[str] = None
     event_name: Optional[str] = None
+    verification_code: Optional[str] = None
+    file_url: Optional[str] = None
     verification_message: str
+    certificate: Optional[Dict[str, Any]] = None
 
 
 # Achievements
@@ -318,6 +324,17 @@ class AchievementCreate(BaseModel):
     badge_icon: Optional[str] = "Trophy"
     proof_url: Optional[str] = None
     is_featured: Optional[bool] = False
+
+
+class AchievementUpdate(BaseModel):
+    member_id: Optional[int] = None
+    title: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    event_id: Optional[int] = None
+    badge_icon: Optional[str] = None
+    proof_url: Optional[str] = None
+    is_featured: Optional[bool] = None
 
 
 class AchievementResponse(BaseModel):
@@ -334,8 +351,7 @@ class AchievementResponse(BaseModel):
     is_featured: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Announcements
@@ -346,6 +362,16 @@ class AnnouncementCreate(BaseModel):
     target_role: Optional[str] = "All"
     priority: Optional[str] = "Normal"
     pinned: Optional[bool] = False
+    expires_at: Optional[datetime] = None
+
+
+class AnnouncementUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    domain_id: Optional[int] = None
+    target_role: Optional[str] = None
+    priority: Optional[str] = None
+    pinned: Optional[bool] = None
     expires_at: Optional[datetime] = None
 
 
@@ -363,8 +389,7 @@ class AnnouncementResponse(BaseModel):
     expires_at: Optional[datetime] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Notifications
@@ -379,11 +404,19 @@ class NotificationResponse(BaseModel):
     priority: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Documents
+class DocumentUpdate(BaseModel):
+    title: Optional[str] = None
+    category: Optional[str] = None
+    domain_id: Optional[int] = None
+    event_id: Optional[int] = None
+    project_id: Optional[int] = None
+    is_public: Optional[bool] = None
+
+
 class DocumentResponse(BaseModel):
     id: int
     title: str
@@ -402,8 +435,7 @@ class DocumentResponse(BaseModel):
     is_public: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Audit Log
@@ -419,5 +451,4 @@ class AuditLogResponse(BaseModel):
     ip_address: Optional[str] = None
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -13,9 +13,9 @@ class Project(Base):
     objective = Column(Text, nullable=True)
     domain_id = Column(Integer, ForeignKey("domains.id", ondelete="SET NULL"), nullable=True)
     secondary_domains = Column(Text, default="[]")  # JSON
-    project_lead_id = Column(Integer, ForeignKey("members.id", ondelete="RESTRICT"), nullable=False)
-    start_date = Column(DateTime, nullable=False)
-    target_date = Column(DateTime, nullable=False)
+    project_lead_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
+    start_date = Column(DateTime, nullable=True, default=lambda: datetime.now(timezone.utc))
+    target_date = Column(DateTime, nullable=True)
     completed_date = Column(DateTime, nullable=True)
     status = Column(String(30), default="Planning", index=True, nullable=False)  # Planning, Active, On Hold, Review, Completed, Archived
     priority = Column(String(20), default="Medium", nullable=False)  # Low, Medium, High, Critical

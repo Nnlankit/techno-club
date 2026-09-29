@@ -11,7 +11,7 @@ from app.models.member_domain import Member, Domain
 from app.models.project_task import Project, ProjectMember, Task
 from app.schemas.project_task import (
     ProjectCreate, ProjectUpdate, ProjectResponse, 
-    ProjectMemberResponse
+    ProjectMemberResponse, ProjectMemberAdd
 )
 from app.services.audit_service import log_audit_event
 
@@ -67,12 +67,29 @@ def get_all_projects(
     status_filter: Optional[str] = Query(None, alias="status"),
     lead_id: Optional[int] = None,
     search: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = db.query(Project)
+    user_role = current_user.role.name if current_user.role else "Member"
 
-    if domain_id:
-        query = query.filter(Project.domain_id == domain_id)
+    # Role-based query isolation
+    if user_role in ["Domain Head", "Technical Lead"]:
+        user_domain_id = current_user.member.domain_id if current_user.member else None
+        if user_domain_id:
+            query = query.filter(Project.domain_id == user_domain_id)
+        elif domain_id:
+            query = query.filter(Project.domain_id == domain_id)
+    elif user_role == "Member":
+        user_member_id = current_user.member.id if current_user.member else 0
+        from app.models.project_task import ProjectMember
+        member_proj_ids = [pm.project_id for pm in db.query(ProjectMember).filter(ProjectMember.member_id == user_member_id).all()]
+        query = query.filter(Project.id.in_(member_proj_ids) if member_proj_ids else False)
+    else:
+        # President, Vice President, Faculty Coordinator have club-wide project visibility
+        if domain_id:
+            query = query.filter(Project.domain_id == domain_id)
+
     if status_filter:
         query = query.filter(Project.status == status_filter)
     if lead_id:
@@ -86,10 +103,32 @@ def get_all_projects(
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-def get_project_by_id(project_id: int, db: Session = Depends(get_db)):
+def get_project_by_id(
+    project_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     proj = db.query(Project).filter(Project.id == project_id).first()
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    user_role = current_user.role.name if current_user.role else "Member"
+    if user_role in ["Domain Head", "Technical Lead"]:
+        user_domain_id = current_user.member.domain_id if current_user.member else None
+        if user_domain_id and proj.domain_id != user_domain_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Cannot access project belonging to another domain."
+            )
+    elif user_role == "Member":
+        user_member_id = current_user.member.id if current_user.member else 0
+        is_member = any(pm.member_id == user_member_id for pm in proj.members)
+        if not is_member and proj.project_lead_id != user_member_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You are not assigned to this project."
+            )
+
     return build_project_response(proj, db)
 
 
@@ -99,6 +138,18 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head", "Technical Lead"]))
 ):
+    user_role = current_user.role.name if current_user.role else "Member"
+    user_domain_id = current_user.member.domain_id if current_user.member else None
+
+    if user_role in ["Domain Head", "Technical Lead"]:
+        if user_domain_id and payload.domain_id and payload.domain_id != user_domain_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Domain Heads can only create projects in their own domain."
+            )
+        if not payload.domain_id and user_domain_id:
+            payload.domain_id = user_domain_id
+    start_date = payload.start_date or datetime.now(timezone.utc)
     new_proj = Project(
         name=payload.name,
         description=payload.description,
@@ -106,7 +157,7 @@ def create_project(
         domain_id=payload.domain_id,
         secondary_domains=json.dumps(payload.secondary_domains or []),
         project_lead_id=payload.project_lead_id,
-        start_date=payload.start_date,
+        start_date=start_date,
         target_date=payload.target_date,
         completed_date=payload.completed_date,
         status=payload.status or "Planning",
@@ -120,21 +171,13 @@ def create_project(
     db.add(new_proj)
     db.flush()
 
-    # Add project lead to project members
-    db.add(ProjectMember(
-        project_id=new_proj.id,
-        member_id=payload.project_lead_id,
-        role_in_project="Project Lead"
-    ))
-
-    # Add team members
+    # Only add team members if explicitly specified
     for mid in (payload.team_member_ids or []):
-        if mid != payload.project_lead_id:
-            db.add(ProjectMember(
-                project_id=new_proj.id,
-                member_id=mid,
-                role_in_project="Contributor"
-            ))
+        db.add(ProjectMember(
+            project_id=new_proj.id,
+            member_id=mid,
+            role_in_project="Contributor"
+        ))
 
     log_audit_event(
         db, current_user, "CREATE", "Project", new_proj.id,
@@ -156,6 +199,18 @@ def update_project(
     proj = db.query(Project).filter(Project.id == project_id).first()
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    user_role = current_user.role.name if current_user.role else "Member"
+    user_member_id = current_user.member.id if current_user.member else 0
+
+    # President, Vice President, Super Admin have universal edit access
+    if user_role not in ["Super Admin", "President", "Vice President"]:
+        if user_role in ["Domain Head", "Technical Lead"]:
+            user_domain_id = current_user.member.domain_id if current_user.member else None
+            if not user_domain_id or proj.domain_id != user_domain_id:
+                raise HTTPException(status_code=403, detail="Forbidden: You can only edit projects in your domain.")
+        elif proj.project_lead_id != user_member_id:
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to edit this project.")
 
     update_data = payload.model_dump(exclude_unset=True)
     if "secondary_domains" in update_data and update_data["secondary_domains"] is not None:
@@ -180,8 +235,9 @@ def update_project(
 @router.post("/{project_id}/members", response_model=ProjectResponse)
 def add_project_member(
     project_id: int,
-    member_id: int,
-    role_in_project: str = "Contributor",
+    payload: Optional[ProjectMemberAdd] = None,
+    member_id: Optional[int] = Query(None),
+    role_in_project: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -189,20 +245,105 @@ def add_project_member(
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    user_role = current_user.role.name if current_user.role else "Member"
+    user_member_id = current_user.member.id if current_user.member else 0
+
+    # President, Vice President, Super Admin have universal member management access
+    if user_role not in ["Super Admin", "President", "Vice President"]:
+        if user_role in ["Domain Head", "Technical Lead"]:
+            user_domain_id = current_user.member.domain_id if current_user.member else None
+            if not user_domain_id or proj.domain_id != user_domain_id:
+                raise HTTPException(status_code=403, detail="Forbidden: You can only manage members in your domain.")
+        elif proj.project_lead_id != user_member_id:
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to manage members for this project.")
+
+    target_member_id = payload.member_id if (payload and payload.member_id) else member_id
+    if not target_member_id:
+        raise HTTPException(status_code=400, detail="member_id is required")
+
+    target_member = db.query(Member).filter(Member.id == target_member_id).first()
+    if not target_member:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    target_role = (payload.role_in_project if (payload and payload.role_in_project) else role_in_project) or "Contributor"
+
     existing = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
-        ProjectMember.member_id == member_id
+        ProjectMember.member_id == target_member_id
     ).first()
     if existing:
-        existing.role_in_project = role_in_project
+        existing.role_in_project = target_role
     else:
         pm = ProjectMember(
             project_id=project_id,
-            member_id=member_id,
-            role_in_project=role_in_project
+            member_id=target_member_id,
+            role_in_project=target_role
         )
         db.add(pm)
+
+    log_audit_event(
+        db, current_user, "UPDATE", "Project", proj.id,
+        f"{current_user.email} added {target_member.full_name} as '{target_role}' to Project '{proj.name}'"
+    )
 
     db.commit()
     db.refresh(proj)
     return build_project_response(proj, db)
+
+
+@router.delete("/{project_id}/members/{member_id}", response_model=ProjectResponse)
+def remove_project_member(
+    project_id: int,
+    member_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    proj = db.query(Project).filter(Project.id == project_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    user_role = current_user.role.name if current_user.role else "Member"
+    user_member_id = current_user.member.id if current_user.member else 0
+
+    if user_role not in ["Super Admin", "President", "Vice President"]:
+        if user_role in ["Domain Head", "Technical Lead"]:
+            user_domain_id = current_user.member.domain_id if current_user.member else None
+            if not user_domain_id or proj.domain_id != user_domain_id:
+                raise HTTPException(status_code=403, detail="Forbidden: You can only manage members in your domain.")
+        elif proj.project_lead_id != user_member_id:
+            raise HTTPException(status_code=403, detail="Forbidden: You do not have permission to manage members for this project.")
+
+    pm = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.member_id == member_id
+    ).first()
+    if pm:
+        member_name = pm.member.full_name if pm.member else f"ID {member_id}"
+        db.delete(pm)
+        log_audit_event(
+            db, current_user, "UPDATE", "Project", proj.id,
+            f"{current_user.email} removed {member_name} from Project '{proj.name}'"
+        )
+        db.commit()
+        db.refresh(proj)
+
+    return build_project_response(proj, db)
+
+
+@router.delete("/{project_id}")
+def delete_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["Super Admin", "President", "Vice President"]))
+):
+    proj = db.query(Project).filter(Project.id == project_id).first()
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    log_audit_event(
+        db, current_user, "DELETE", "Project", proj.id,
+        f"{current_user.email} deleted Project '{proj.name}'"
+    )
+    db.delete(proj)
+    db.commit()
+    return {"message": f"Project '{proj.name}' successfully deleted"}

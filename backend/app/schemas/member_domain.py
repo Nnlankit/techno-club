@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 
 class DomainBase(BaseModel):
@@ -29,17 +29,18 @@ class DomainUpdate(BaseModel):
 
 
 class DomainMemberSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     full_name: str
     email: str
     role_title: str
     avatar_url: Optional[str] = None
 
-    class Config:
-        from_attributes = True
-
 
 class DomainResponse(DomainBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     head_id: Optional[int] = None
     co_head_id: Optional[int] = None
@@ -52,20 +53,18 @@ class DomainResponse(DomainBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class MemberBase(BaseModel):
-    college_id: str
+    college_id: Optional[str] = None
     full_name: str
     email: EmailStr
     phone: Optional[str] = None
-    department: str
-    year_semester: str
+    department: Optional[str] = "Computer Science & Engineering"
+    year_semester: Optional[str] = "1st Year / 1st Sem"
     domain_id: Optional[int] = None
-    role_title: str = "Member"
-    status: str = "Active"
+    reports_to_id: Optional[int] = None
+    role_title: Optional[str] = "Member"
+    status: Optional[str] = "Active"
     skills: Optional[List[str]] = []
     avatar_url: Optional[str] = None
     bio: Optional[str] = None
@@ -75,16 +74,27 @@ class MemberBase(BaseModel):
 
 class MemberCreate(MemberBase):
     password: Optional[str] = "TechnoClub@2026"
+    role: Optional[str] = None
     role_id: Optional[int] = None
+    designation: Optional[str] = None
+    year: Optional[str] = None
+    semester: Optional[str] = None
+    joining_date: Optional[datetime] = None
 
 
 class MemberUpdate(BaseModel):
     full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    college_id: Optional[str] = None
     phone: Optional[str] = None
     department: Optional[str] = None
     year_semester: Optional[str] = None
     domain_id: Optional[int] = None
+    reports_to_id: Optional[int] = None
+    role_id: Optional[int] = None
+    role: Optional[str] = None
     role_title: Optional[str] = None
+    designation: Optional[str] = None
     status: Optional[str] = None
     skills: Optional[List[str]] = None
     avatar_url: Optional[str] = None
@@ -94,9 +104,15 @@ class MemberUpdate(BaseModel):
 
 
 class MemberResponse(MemberBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     user_id: int
+    college_id: str
     domain_name: Optional[str] = None
+    role_name: Optional[str] = None
+    reports_to_name: Optional[str] = None
+    reports_to_role: Optional[str] = None
     joining_date: datetime
     created_at: datetime
     updated_at: datetime
@@ -105,5 +121,15 @@ class MemberResponse(MemberBase):
     events_participated_count: int = 0
     achievements_count: int = 0
 
-    class Config:
-        from_attributes = True
+
+class ReportsToOption(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    full_name: Optional[str] = None
+    email: str
+    role: str
+    role_title: Optional[str] = None
+    domain_name: Optional[str] = None
+

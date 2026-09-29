@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_roles
 from app.models.user_role import User, Role
 from app.models.member_domain import Member, Domain
 from app.models.event_hackathon import Event, EventRegistration, EventAttendance, Hackathon
@@ -15,13 +15,18 @@ from app.models.operations import (
     ApprovalProposal, Budget, Expense, Sponsor, Certificate, 
     Achievement, Announcement, Notification, Resource, Document, AuditLog
 )
-from app.schemas.analytics import DashboardStatsResponse, MemberDashboardStatsResponse
+from app.schemas.analytics import (
+    DashboardStatsResponse, MemberDashboardStatsResponse, DomainDashboardStatsResponse
+)
 
 router = APIRouter()
 
 
 @router.get("/executive", response_model=DashboardStatsResponse)
-def get_executive_stats(db: Session = Depends(get_db)):
+def get_executive_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Faculty Coordinator", "Treasurer"]))
+):
     total_members = db.query(Member).count()
     active_members = db.query(Member).filter(Member.status == "Active").count()
     total_domains = db.query(Domain).filter(Domain.is_active == True).count()
@@ -148,7 +153,6 @@ def get_member_dashboard(
             })
 
     regs = db.query(EventRegistration).filter(EventRegistration.member_id == member_id).all()
-    attended_count = sum(1 for r in regs if r.attendance is not None)
 
     achievements = db.query(Achievement).filter(Achievement.member_id == member_id).all()
     certs = db.query(Certificate).filter(Certificate.recipient_member_id == member_id).all()
@@ -170,7 +174,7 @@ def get_member_dashboard(
         pending_tasks_count=len(pending_tasks),
         my_projects_count=len(my_projects),
         events_registered_count=len(regs),
-        events_attended_count=attended_count,
+        events_attended_count=0,
         achievements_count=len(achievements),
         certificates_count=len(certs),
         unread_notifications_count=unread_notifs,
@@ -193,11 +197,104 @@ def get_member_dashboard(
     )
 
 
-@router.get("/export-csv")
-def export_csv_report(
-    entity: str = Query("members", description="members | events | expenses | tasks"),
-    db: Session = Depends(get_db)
+@router.get("/domain-dashboard", response_model=DomainDashboardStatsResponse)
+def get_domain_dashboard(
+    domain_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    user_role = current_user.role.name if current_user.role else "Member"
+    user_domain_id = current_user.member.domain_id if current_user.member else None
+
+    # If caller is Domain Head, lock strictly to their assigned domain
+    if user_role in ["Domain Head", "Technical Lead"]:
+        target_domain_id = user_domain_id or 1
+    elif domain_id and user_role in ["President", "Vice President", "Faculty Coordinator"]:
+        target_domain_id = domain_id
+    else:
+        target_domain_id = user_domain_id or 1
+
+    domain = db.query(Domain).filter(Domain.id == target_domain_id).first()
+    if not domain:
+        domain = db.query(Domain).first()
+        target_domain_id = domain.id if domain else 1
+
+    domain_name = domain.name if domain else "AI & Machine Learning"
+
+    members = db.query(Member).filter(Member.domain_id == target_domain_id).all()
+    projects = db.query(Project).filter(Project.domain_id == target_domain_id).all()
+    active_projects = [p for p in projects if p.status == "Active"]
+    tasks = db.query(Task).filter(Task.domain_id == target_domain_id).all()
+    pending_tasks = [t for t in tasks if t.status != "Completed"]
+    now = datetime.now(timezone.utc)
+    activities = db.query(Activity).filter(Activity.domain_id == target_domain_id).order_by(Activity.start_date.desc()).all()
+    upcoming_activities = [a for a in activities if a.start_date >= now or a.status in ["Planning", "Scheduled"]]
+    events = db.query(Event).filter(Event.domain_id == target_domain_id, Event.end_time >= now).order_by(Event.start_time.asc()).limit(4).all()
+    announcements = db.query(Announcement).filter(
+        or_(Announcement.domain_id == target_domain_id, Announcement.domain_id == None)
+    ).order_by(Announcement.pinned.desc(), Announcement.created_at.desc()).limit(4).all()
+
+    return DomainDashboardStatsResponse(
+        domain_id=target_domain_id,
+        domain_name=domain_name,
+        members_count=len(members),
+        active_projects_count=len(active_projects),
+        upcoming_activities_count=len(upcoming_activities),
+        pending_tasks_count=len(pending_tasks),
+        domain_projects=[{
+            "id": p.id,
+            "name": p.name,
+            "status": p.status,
+            "priority": p.priority,
+            "lead_name": p.lead.full_name if p.lead else "Unassigned",
+            "target_date": p.target_date.isoformat() if p.target_date else None,
+            "tasks_count": db.query(Task).filter(Task.project_id == p.id).count()
+        } for p in projects[:6]],
+        domain_tasks=[{
+            "id": t.id,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority,
+            "due_date": t.due_date.isoformat() if t.due_date else None,
+            "assignee_name": t.assignee.full_name if t.assignee else "Unassigned"
+        } for t in pending_tasks[:8]],
+        upcoming_events=[{
+            "id": e.id,
+            "name": e.name,
+            "event_type": e.event_type,
+            "start_time": e.start_time.isoformat(),
+            "venue": e.venue
+        } for e in events],
+        team_members=[{
+            "id": m.id,
+            "full_name": m.full_name,
+            "role_title": m.role_title,
+            "avatar_url": m.avatar_url,
+            "email": m.email,
+            "status": m.status
+        } for m in members[:10]],
+        recent_activities=[{
+            "id": a.id,
+            "title": a.title,
+            "activity_type": a.activity_type,
+            "status": a.status,
+            "date": a.start_date.isoformat()
+        } for a in activities[:5]],
+        announcements=[{
+            "id": an.id,
+            "title": an.title,
+            "priority": an.priority,
+            "created_at": an.created_at.isoformat()
+        } for an in announcements]
+    )
+
+
+def generate_csv_data(entity: str, db: Session, current_user: User):
+    user_role = current_user.role.name if current_user.role else "Member"
+    if user_role == "Member":
+        raise HTTPException(status_code=403, detail="Members cannot export club-wide CSV data")
+    if entity in ["expenses", "sponsors", "audit"] and user_role not in ["President", "Treasurer", "Faculty Coordinator"]:
+        raise HTTPException(status_code=403, detail=f"Your role ({user_role}) is not authorized to export {entity} data")
     output = io.StringIO()
     writer = csv.writer(output)
 
@@ -280,3 +377,21 @@ def export_csv_report(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=techno_club_{entity}_{datetime.now().strftime('%Y%m%d')}.csv"}
     )
+
+
+@router.get("/export-csv")
+def export_csv_report(
+    entity: str = Query("members", description="members | events | expenses | tasks"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return generate_csv_data(entity, db, current_user)
+
+
+@router.get("/export-csv/{entity}")
+def export_csv_report_path(
+    entity: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return generate_csv_data(entity, db, current_user)

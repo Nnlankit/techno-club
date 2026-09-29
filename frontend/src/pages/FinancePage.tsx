@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, TrendingUp, TrendingDown, Receipt, Plus, 
-  Download, CheckCircle, XCircle, Clock, Filter, AlertCircle, FileText
+  Download, CheckCircle, XCircle, Clock, Filter, AlertCircle, 
+  FileText, ArrowUpRight, ArrowDownRight, Sparkles
 } from 'lucide-react';
 import { api } from '../services/api';
 import { Budget, Expense, Event, Domain } from '../types';
-import { StatusBadge } from '../components/StatusBadge';
-import { Modal } from '../components/Modal';
-import { StatCard } from '../components/StatCard';
+import { 
+  Button, Badge, Modal, PageHeader, EmptyState, LoadingState, Card, ProgressBar, Table 
+} from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 
 export const FinancePage: React.FC = () => {
@@ -21,6 +22,7 @@ export const FinancePage: React.FC = () => {
   // Filters
   const [statusFilter, setStatusFilter] = useState('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Modals
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -128,161 +130,211 @@ export const FinancePage: React.FC = () => {
   const filteredExpenses = expenses.filter(e => {
     const matchStatus = statusFilter === 'All' || e.status === statusFilter;
     const matchCategory = categoryFilter === 'All' || e.category === categoryFilter;
-    return matchStatus && matchCategory;
+    const matchSearch = e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (e.notes && e.notes.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (e.event_name && e.event_name.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchStatus && matchCategory && matchSearch;
   });
+
+  const canManageFinance = hasRole(['President', 'Vice President', 'Treasurer']);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
-            <span>Treasury & Financial Operations</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-              FY 2025-2026
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Budget allocations, operational expense claims, reimbursements audit, and financial tracking.
-          </p>
-        </div>
-        <div className="flex items-center space-x-2">
-          <a
-            href={api.reports.exportCsvUrl('expenses')}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export CSV</span>
-          </a>
-          {hasRole(['President', 'Vice President', 'Treasurer']) && (
-            <button
-              onClick={() => setShowBudgetModal(true)}
-              className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Create Allocation</span>
-            </button>
-          )}
-          <button
-            onClick={() => setShowExpenseModal(true)}
-            className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Receipt className="w-4 h-4" />
-            <span>Claim Expense</span>
-          </button>
-        </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Sanctioned Budget"
-          value={`$${totalAllocated.toLocaleString()}`}
-          subtitle="All approved event & domain allocations"
-          icon={<DollarSign className="w-5 h-5" />}
-          color="indigo"
-        />
-        <StatCard
-          title="Disbursed Expenses"
-          value={`$${totalSpent.toLocaleString()}`}
-          subtitle="Approved and disbursed reimbursements"
-          icon={<TrendingDown className="w-5 h-5 text-rose-500" />}
-          color="rose"
-        />
-        <StatCard
-          title="Remaining Treasury"
-          value={`$${remainingTotal.toLocaleString()}`}
-          subtitle="Available for upcoming programs"
-          icon={<TrendingUp className="w-5 h-5 text-emerald-500" />}
-          color="emerald"
-        />
-        <StatCard
-          title="Pending Claims in Queue"
-          value={`$${pendingClaims.toLocaleString()}`}
-          subtitle={`${expenses.filter(e => e.status === 'Pending').length} pending approval by Treasurer`}
-          icon={<Clock className="w-5 h-5 text-amber-500" />}
-          color="amber"
-        />
-      </div>
-
-      {/* Budget Allocation Progress Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {budgets.map((b) => {
-          const pct = Math.min(100, Math.round(((b.total_spent || 0) / (b.total_allocated || 1)) * 100));
-          return (
-            <div key={b.id} className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-xs text-slate-900 dark:text-white truncate pr-2">{b.title}</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                  {b.fiscal_year}
-                </span>
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                  <span>Spent: <strong className="text-slate-900 dark:text-white">${b.total_spent?.toLocaleString() || 0}</strong></span>
-                  <span>Cap: <strong className="text-slate-900 dark:text-white">${b.total_allocated?.toLocaleString() || 0}</strong></span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      pct > 85 ? 'bg-rose-500' : pct > 60 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[11px] text-slate-400">
-                  <span>{pct}% utilized</span>
-                  <span>Remaining: ${((b.total_allocated || 0) - (b.total_spent || 0)).toLocaleString()}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Expenses Registry Section */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
-        {/* Table Controls */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Section 9 Common Page Header */}
+      <PageHeader
+        title="Finance"
+        description="Treasury management, budget allocations, operational reimbursement claims, and financial governance."
+        searchProps={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: 'Search expense claims by title, vendor, event...'
+        }}
+        filterProps={{
+          filters: [
+            {
+              key: 'status',
+              label: 'Claim Status',
+              value: statusFilter,
+              onChange: setStatusFilter,
+              options: [
+                { label: 'All Statuses', value: 'All' },
+                { label: 'Pending', value: 'Pending' },
+                { label: 'Approved', value: 'Approved' },
+                { label: 'Reimbursed', value: 'Reimbursed' },
+                { label: 'Rejected', value: 'Rejected' },
+              ]
+            },
+            {
+              key: 'category',
+              label: 'Category',
+              value: categoryFilter,
+              onChange: setCategoryFilter,
+              options: [
+                { label: 'All Categories', value: 'All' },
+                { label: 'Logistics', value: 'Logistics' },
+                { label: 'Hardware', value: 'Hardware' },
+                { label: 'Food & Catering', value: 'Food & Catering' },
+                { label: 'Marketing', value: 'Marketing' },
+                { label: 'Prizes & Cash', value: 'Prizes & Cash' },
+                { label: 'Licenses', value: 'Licenses' },
+              ]
+            }
+          ]
+        }}
+        actions={
           <div className="flex items-center space-x-2">
-            <Receipt className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-              Disbursements & Expense Claims Log
+            <a
+              href={api.reports.exportCsvUrl('expenses')}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Button variant="outline" size="md" icon={<Download className="w-4 h-4" />}>
+                Export CSV
+              </Button>
+            </a>
+            {canManageFinance && (
+              <Button
+                variant="secondary"
+                size="md"
+                icon={<Plus className="w-4 h-4" />}
+                onClick={() => setShowBudgetModal(true)}
+              >
+                Create Allocation
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Receipt className="w-4 h-4" />}
+              onClick={() => setShowExpenseModal(true)}
+            >
+              Claim Expense
+            </Button>
+          </div>
+        }
+      />
+
+      {/* KPI Cards (Section 11) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Sanctioned Budget</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 flex items-center justify-center">
+              <DollarSign className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">
+            ₹{totalAllocated.toLocaleString()}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Total active allocations across events & domains
+          </p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Disbursed Expenses</span>
+            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 flex items-center justify-center">
+              <TrendingDown className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-2">
+            ₹{totalSpent.toLocaleString()}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Approved and disbursed reimbursements
+          </p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Remaining Treasury</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
+            ₹{remainingTotal.toLocaleString()}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Available runway for upcoming club programs
+          </p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Pending Claims</span>
+            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 flex items-center justify-center">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-2">
+            ₹{pendingClaims.toLocaleString()}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            {expenses.filter(e => e.status === 'Pending').length} awaiting Treasurer authorization
+          </p>
+        </Card>
+      </div>
+
+      {/* Budget Allocation Utilization Progress (Section 11) */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Active Budget Allocations & Utilization
+          </h2>
+          <span className="text-xs text-slate-400 font-medium">{budgets.length} Budget Heads</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {budgets.map((b) => {
+            const pct = Math.min(100, Math.round(((b.total_spent || 0) / (b.total_allocated || 1)) * 100));
+            return (
+              <Card key={b.id} className="p-4 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-slate-900 dark:text-white truncate pr-2">
+                    {b.title}
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                    {b.fiscal_year}
+                  </span>
+                </div>
+                
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span>Spent: <strong className="text-slate-900 dark:text-white">₹{b.total_spent?.toLocaleString() || 0}</strong></span>
+                    <span>Cap: <strong className="text-slate-900 dark:text-white">₹{b.total_allocated?.toLocaleString() || 0}</strong></span>
+                  </div>
+                  <ProgressBar
+                    value={pct}
+                    color={pct > 85 ? 'danger' : pct > 60 ? 'warning' : 'primary'}
+                    size="sm"
+                  />
+                  <div className="flex justify-between text-[11px] text-slate-400">
+                    <span>{pct}% utilized</span>
+                    <span>Remaining: ₹{((b.total_allocated || 0) - (b.total_spent || 0)).toLocaleString()}</span>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Expenses Registry Section (Section 10 Table Design) */}
+      <Card className="overflow-hidden shadow-xs">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Receipt className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+              Disbursements & Expense Claims Registry
             </h2>
           </div>
-
-          <div className="flex items-center space-x-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-700 dark:text-slate-200"
-            >
-              <option value="All">All Statuses</option>
-              <option value="Pending">Pending</option>
-              <option value="Approved">Approved</option>
-              <option value="Reimbursed">Reimbursed</option>
-              <option value="Rejected">Rejected</option>
-            </select>
-
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-700 dark:text-slate-200"
-            >
-              <option value="All">All Categories</option>
-              <option value="Logistics">Logistics</option>
-              <option value="Hardware">Hardware / Kits</option>
-              <option value="Food & Catering">Food & Catering</option>
-              <option value="Marketing">Marketing / Print</option>
-              <option value="Prizes & Cash">Prizes & Cash</option>
-              <option value="Licenses">Licenses & APIs</option>
-            </select>
-          </div>
+          <span className="text-xs text-slate-400 font-medium">
+            {filteredExpenses.length} records shown
+          </span>
         </div>
 
-        {/* Expenses Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
@@ -293,17 +345,19 @@ export const FinancePage: React.FC = () => {
                 <th className="py-3 px-3">Associated Event</th>
                 <th className="py-3 px-3">Date</th>
                 <th className="py-3 px-3">Status</th>
-                <th className="py-3 px-4 text-right">Treasurer Actions</th>
+                {canManageFinance && <th className="py-3 px-4 text-right">Treasurer Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">Loading ledger records...</td>
+                  <td colSpan={canManageFinance ? 7 : 6} className="py-12 text-center text-slate-400">
+                    <LoadingState message="Loading financial ledger..." />
+                  </td>
                 </tr>
               ) : filteredExpenses.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={canManageFinance ? 7 : 6} className="py-12 text-center text-slate-400">
                     No expense claims recorded.
                   </td>
                 </tr>
@@ -312,116 +366,120 @@ export const FinancePage: React.FC = () => {
                   <tr key={exp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="py-3 px-4">
                       <div className="font-semibold text-slate-900 dark:text-white">{exp.title}</div>
-                      {exp.notes && <div className="text-[11px] text-slate-400">{exp.notes}</div>}
+                      {exp.notes && <div className="text-[11px] text-slate-400 mt-0.5">{exp.notes}</div>}
                     </td>
                     <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                         {exp.category}
                       </span>
                     </td>
-                    <td className="py-3 px-3">
-                      <span className="font-bold text-slate-900 dark:text-white text-sm">
-                        ${exp.amount.toLocaleString()}
-                      </span>
+                    <td className="py-3 px-3 font-bold text-slate-900 dark:text-white">
+                      ₹{exp.amount.toLocaleString()}
                     </td>
                     <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
-                      {exp.event_name || 'General Operations'}
+                      {exp.event_name || 'General Club Operations'}
                     </td>
-                    <td className="py-3 px-3 font-mono text-[11px] text-slate-500">
+                    <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">
                       {exp.date_incurred}
                     </td>
                     <td className="py-3 px-3">
-                      <StatusBadge status={exp.status} />
+                      <Badge status={exp.status} />
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      {hasRole(['President', 'Vice President', 'Treasurer']) && exp.status === 'Pending' ? (
-                        <div className="inline-flex items-center space-x-1.5">
-                          <button
-                            onClick={() => handleUpdateExpenseStatus(exp.id, 'Approved')}
-                            className="p-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:hover:bg-emerald-900 dark:text-emerald-400"
-                            title="Approve Claim"
+                    {canManageFinance && (
+                      <td className="py-3 px-4 text-right">
+                        {exp.status === 'Pending' && (
+                          <div className="inline-flex items-center space-x-1.5">
+                            <Button
+                              variant="success"
+                              size="xs"
+                              onClick={() => handleUpdateExpenseStatus(exp.id, 'Approved')}
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              variant="danger"
+                              size="xs"
+                              onClick={() => handleUpdateExpenseStatus(exp.id, 'Rejected')}
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        )}
+                        {exp.status === 'Approved' && (
+                          <Button
+                            variant="secondary"
+                            size="xs"
+                            onClick={() => handleUpdateExpenseStatus(exp.id, 'Reimbursed')}
                           >
-                            <CheckCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleUpdateExpenseStatus(exp.id, 'Rejected')}
-                            className="p-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:hover:bg-rose-900 dark:text-rose-400"
-                            title="Reject Claim"
-                          >
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : hasRole(['President', 'Vice President', 'Treasurer']) && exp.status === 'Approved' ? (
-                        <button
-                          onClick={() => handleUpdateExpenseStatus(exp.id, 'Reimbursed')}
-                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 hover:bg-indigo-100"
-                        >
-                          Disburse
-                        </button>
-                      ) : (
-                        <span className="text-[11px] text-slate-400 italic">Settled</span>
-                      )}
-                    </td>
+                            Mark Reimbursed
+                          </Button>
+                        )}
+                        {(exp.status === 'Reimbursed' || exp.status === 'Rejected') && (
+                          <span className="text-[11px] text-slate-400">Settled</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
 
-      {/* Record Expense Modal */}
+      {/* Claim Expense Modal (Section 12 Form Design) */}
       <Modal
         isOpen={showExpenseModal}
         onClose={() => setShowExpenseModal(false)}
         title="Submit Operational Expense Claim"
+        subtitle="Receipts will be audited and routed to Treasurer for disbursement sanction"
+        maxWidth="md"
       >
         <form onSubmit={handleRecordExpense} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Expense Item Description *
+              Expense Item Description
             </label>
             <input
               type="text"
               required
               value={expenseTitle}
               onChange={(e) => setExpenseTitle(e.target.value)}
-              placeholder="e.g. Refreshments for Hackathon Mentors or Banner Printing"
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="e.g. Refreshments for Workshop 2, Raspberry Pi 5 kits"
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Category *
+                Category
               </label>
               <select
                 value={expenseCategory}
                 onChange={(e) => setExpenseCategory(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="Logistics">Logistics & Venue</option>
-                <option value="Hardware">Hardware & Equipment</option>
+                <option value="Logistics">Logistics</option>
+                <option value="Hardware">Hardware / Kits</option>
                 <option value="Food & Catering">Food & Catering</option>
-                <option value="Marketing">Marketing & Banners</option>
-                <option value="Prizes & Cash">Prizes & Trophies</option>
-                <option value="Licenses">Software & Cloud APIs</option>
+                <option value="Marketing">Marketing / Print</option>
+                <option value="Prizes & Cash">Prizes & Cash</option>
+                <option value="Licenses">Licenses & APIs</option>
               </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Amount ($ USD) *
+                Amount (₹)
               </label>
               <input
                 type="number"
-                min="0.01"
-                step="0.01"
                 required
+                min="1"
                 value={expenseAmount}
                 onChange={(e) => setExpenseAmount(e.target.value)}
-                placeholder="450.00"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                placeholder="0"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -429,15 +487,15 @@ export const FinancePage: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Associated Event
+                Associated Event (Optional)
               </label>
               <select
                 value={expenseEventId || ''}
                 onChange={(e) => setExpenseEventId(e.target.value ? Number(e.target.value) : undefined)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">General Club Treasury</option>
-                {events.map(ev => (
+                {events.map((ev) => (
                   <option key={ev.id} value={ev.id}>{ev.name}</option>
                 ))}
               </select>
@@ -451,38 +509,38 @@ export const FinancePage: React.FC = () => {
                 required
                 value={expenseDate}
                 onChange={(e) => setExpenseDate(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Receipt / Justification Notes
+              Vendor / Notes / Receipt Memo
             </label>
             <textarea
               rows={2}
               value={expenseNotes}
               onChange={(e) => setExpenseNotes(e.target.value)}
-              placeholder="Vendor invoice #8892, paid via UPI/Card."
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="Vendor invoice number, payment reference, or itemization..."
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          <div className="flex justify-end space-x-2 pt-3">
-            <button
+          <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setShowExpenseModal(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              variant="primary"
             >
               Submit Claim
-            </button>
+            </Button>
           </div>
         </form>
       </Modal>
@@ -491,27 +549,29 @@ export const FinancePage: React.FC = () => {
       <Modal
         isOpen={showBudgetModal}
         onClose={() => setShowBudgetModal(false)}
-        title="Create Sanctioned Budget Allocation"
+        title="Allocate New Budget Head"
+        subtitle="Assign sanctioned financial ceiling to a specific domain or flagship program"
+        maxWidth="md"
       >
         <form onSubmit={handleCreateBudget} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Allocation Title *
+              Budget Head Title
             </label>
             <input
               type="text"
               required
               value={budgetTitle}
               onChange={(e) => setBudgetTitle(e.target.value)}
-              placeholder="e.g. Annual Hackathon Sanction or AI/ML Domain Cloud Budget"
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="e.g. AI/ML Research Grants, Hackathon Food & Venue Cap"
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Fiscal Year *
+                Fiscal Year
               </label>
               <input
                 type="text"
@@ -519,21 +579,21 @@ export const FinancePage: React.FC = () => {
                 value={fiscalYear}
                 onChange={(e) => setFiscalYear(e.target.value)}
                 placeholder="2025-2026"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Total Allocated Cap ($) *
+                Allocation Cap (₹)
               </label>
               <input
                 type="number"
-                min="1"
                 required
+                min="100"
                 value={allocatedAmount}
                 onChange={(e) => setAllocatedAmount(e.target.value)}
-                placeholder="5000"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                placeholder="10000"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -541,50 +601,50 @@ export const FinancePage: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Domain Association
+                Assign to Domain (Optional)
               </label>
               <select
                 value={budgetDomainId || ''}
                 onChange={(e) => setBudgetDomainId(e.target.value ? Number(e.target.value) : undefined)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">Club-wide Pool</option>
-                {domains.map(d => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
+                <option value="">None (Central / Event)</option>
+                {domains.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Event Association
+                Assign to Event (Optional)
               </label>
               <select
                 value={budgetEventId || ''}
                 onChange={(e) => setBudgetEventId(e.target.value ? Number(e.target.value) : undefined)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">None / General</option>
-                {events.map(ev => (
+                <option value="">None (Central / Domain)</option>
+                {events.map((ev) => (
                   <option key={ev.id} value={ev.id}>{ev.name}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          <div className="flex justify-end space-x-2 pt-3">
-            <button
+          <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setShowBudgetModal(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              variant="primary"
             >
-              Sanction Allocation
-            </button>
+              Create Allocation
+            </Button>
           </div>
         </form>
       </Modal>

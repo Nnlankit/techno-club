@@ -1,15 +1,17 @@
 import axios from 'axios';
-import {
+import type {
   User, Member, Domain, Event, EventRegistration,
   Hackathon, HackathonTeam, HackathonSubmission,
   Project, Task, TaskComment, Activity, ApprovalProposal,
   Meeting, Resource, Budget, Expense, Sponsor,
   Certificate, Achievement, Announcement, Notification,
   Document, AuditLog, CalendarItem, DashboardStats,
-  MemberDashboardStats, SearchResultItem
+  MemberDashboardStats, DomainDashboardStats, SearchResultItem,
+  PasswordChangePayload, ProfileUpdatePayload, SecurityLogItem,
+  ReportsToOption, CreateMemberPayload
 } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:8000/api/v1';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -26,6 +28,21 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Only dispatch unauthorized event when server explicitly returns 401 on authenticated requests
+    if (
+      error.response?.status === 401 &&
+      !error.config?.url?.includes('/auth/login') &&
+      !error.config?.url?.includes('/auth/json-login')
+    ) {
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const api = {
   // Auth
   auth: {
@@ -35,6 +52,18 @@ export const api = {
     },
     getMe: async (): Promise<User> => {
       const res = await apiClient.get('/auth/me');
+      return res.data;
+    },
+    updateProfile: async (data: ProfileUpdatePayload): Promise<User> => {
+      const res = await apiClient.put('/auth/profile', data);
+      return res.data;
+    },
+    changePassword: async (data: PasswordChangePayload): Promise<{ success: boolean; message: string }> => {
+      const res = await apiClient.post('/auth/change-password', data);
+      return res.data;
+    },
+    getSecurityLogs: async (): Promise<SecurityLogItem[]> => {
+      const res = await apiClient.get('/auth/security-logs');
       return res.data;
     },
     switchDemoRole: async (roleName: string) => {
@@ -51,6 +80,20 @@ export const api = {
     },
     updateRole: async (userId: number, roleId: number): Promise<User> => {
       const res = await apiClient.put(`/users/${userId}/role?role_id=${roleId}`);
+      return res.data;
+    },
+    getAllowedRoles: async (): Promise<string[]> => {
+      const res = await apiClient.get('/users/allowed-roles');
+      return res.data;
+    },
+    getReportsToOptions: async (role: string, domainId?: number): Promise<ReportsToOption[]> => {
+      const res = await apiClient.get('/users/reports-to-options', {
+        params: { role, domain_id: domainId }
+      });
+      return res.data;
+    },
+    create: async (data: CreateMemberPayload): Promise<Member> => {
+      const res = await apiClient.post('/users/', data);
       return res.data;
     }
   },
@@ -100,6 +143,10 @@ export const api = {
     update: async (id: number, data: Partial<Domain>): Promise<Domain> => {
       const res = await apiClient.put(`/domains/${id}`, data);
       return res.data;
+    },
+    delete: async (id: number, archive = true, force = false): Promise<{ message: string; archived?: boolean }> => {
+      const res = await apiClient.delete(`/domains/${id}`, { params: { archive, force } });
+      return res.data;
     }
   },
 
@@ -119,6 +166,14 @@ export const api = {
     },
     update: async (id: number, data: Partial<Event>): Promise<Event> => {
       const res = await apiClient.put(`/events/${id}`, data);
+      return res.data;
+    },
+    duplicate: async (id: number): Promise<Event> => {
+      const res = await apiClient.post(`/events/${id}/duplicate`);
+      return res.data;
+    },
+    delete: async (id: number, archive = false, force = false): Promise<{ message: string; archived?: boolean }> => {
+      const res = await apiClient.delete(`/events/${id}`, { params: { archive, force } });
       return res.data;
     },
     register: async (eventId: number, data: { member_id?: number; guest_name?: string; guest_email?: string; guest_college_id?: string; guest_phone?: string }): Promise<EventRegistration> => {
@@ -166,6 +221,10 @@ export const api = {
       const res = await apiClient.put(`/hackathons/${id}`, data);
       return res.data;
     },
+    delete: async (id: number, archive = false, force = false): Promise<{ message: string; archived?: boolean }> => {
+      const res = await apiClient.delete(`/hackathons/${id}`, { params: { archive, force } });
+      return res.data;
+    },
     registerTeam: async (hackathonId: number, data: { name: string; leader_id: number; members_info?: any[]; project_name?: string }): Promise<HackathonTeam> => {
       const res = await apiClient.post(`/hackathons/${hackathonId}/teams`, { ...data, hackathon_id: hackathonId });
       return res.data;
@@ -206,8 +265,19 @@ export const api = {
       const res = await apiClient.put(`/projects/${id}`, data);
       return res.data;
     },
-    addMember: async (projectId: number, memberId: number, roleInProject: string): Promise<Project> => {
-      const res = await apiClient.post(`/projects/${projectId}/members?member_id=${memberId}&role_in_project=${encodeURIComponent(roleInProject)}`);
+    addMember: async (projectId: number, memberId: number, roleInProject?: string): Promise<Project> => {
+      const res = await apiClient.post(`/projects/${projectId}/members`, {
+        member_id: memberId,
+        role_in_project: roleInProject || 'Contributor'
+      });
+      return res.data;
+    },
+    removeMember: async (projectId: number, memberId: number): Promise<Project> => {
+      const res = await apiClient.delete(`/projects/${projectId}/members/${memberId}`);
+      return res.data;
+    },
+    delete: async (projectId: number): Promise<{ message: string }> => {
+      const res = await apiClient.delete(`/projects/${projectId}`);
       return res.data;
     }
   },
@@ -230,6 +300,10 @@ export const api = {
       const res = await apiClient.put(`/tasks/${id}`, data);
       return res.data;
     },
+    delete: async (id: number, archive = false): Promise<{ message: string; archived?: boolean }> => {
+      const res = await apiClient.delete(`/tasks/${id}`, { params: { archive } });
+      return res.data;
+    },
     addComment: async (taskId: number, comment: string): Promise<TaskComment> => {
       const res = await apiClient.post(`/tasks/${taskId}/comments`, { comment });
       return res.data;
@@ -248,6 +322,10 @@ export const api = {
     },
     update: async (id: number, data: Partial<Activity>): Promise<Activity> => {
       const res = await apiClient.put(`/activities/${id}`, data);
+      return res.data;
+    },
+    delete: async (id: number, archive = false): Promise<{ message: string; archived?: boolean }> => {
+      const res = await apiClient.delete(`/activities/${id}`, { params: { archive } });
       return res.data;
     }
   },
@@ -289,6 +367,10 @@ export const api = {
     update: async (id: number, data: Partial<Meeting>): Promise<Meeting> => {
       const res = await apiClient.put(`/meetings/${id}`, data);
       return res.data;
+    },
+    delete: async (id: number, archive = false): Promise<{ message: string; archived?: boolean }> => {
+      const res = await apiClient.delete(`/meetings/${id}`, { params: { archive } });
+      return res.data;
     }
   },
 
@@ -308,6 +390,14 @@ export const api = {
     },
     assign: async (data: { resource_id: number; member_id: number; project_id?: number; return_due_date: string }): Promise<Resource> => {
       const res = await apiClient.post('/resources/assign', data);
+      return res.data;
+    },
+    returnResource: async (id: number): Promise<Resource> => {
+      const res = await apiClient.post(`/resources/${id}/return`);
+      return res.data;
+    },
+    delete: async (id: number, force = false): Promise<{ message: string }> => {
+      const res = await apiClient.delete(`/resources/${id}`, { params: { force } });
       return res.data;
     }
   },
@@ -349,6 +439,10 @@ export const api = {
     update: async (id: number, data: Partial<Sponsor>): Promise<Sponsor> => {
       const res = await apiClient.put(`/sponsors/${id}`, data);
       return res.data;
+    },
+    delete: async (id: number): Promise<{ message: string }> => {
+      const res = await apiClient.delete(`/sponsors/${id}`);
+      return res.data;
     }
   },
 
@@ -360,6 +454,18 @@ export const api = {
     },
     issue: async (data: { title: string; certificate_type: string; recipient_name: string; recipient_email: string; recipient_member_id?: number; event_id?: number; hackathon_id?: number; metadata_info?: any }): Promise<Certificate> => {
       const res = await apiClient.post('/certificates/issue', data);
+      return res.data;
+    },
+    update: async (id: number, data: Partial<Certificate>): Promise<Certificate> => {
+      const res = await apiClient.put(`/certificates/${id}`, data);
+      return res.data;
+    },
+    revoke: async (id: number, reason?: string): Promise<Certificate> => {
+      const res = await apiClient.post(`/certificates/${id}/revoke`, null, { params: { reason } });
+      return res.data;
+    },
+    delete: async (id: number): Promise<{ message: string }> => {
+      const res = await apiClient.delete(`/certificates/${id}`);
       return res.data;
     },
     verify: async (codeOrId: string) => {
@@ -377,6 +483,14 @@ export const api = {
     create: async (data: Partial<Achievement>): Promise<Achievement> => {
       const res = await apiClient.post('/achievements/', data);
       return res.data;
+    },
+    update: async (id: number, data: Partial<Achievement>): Promise<Achievement> => {
+      const res = await apiClient.put(`/achievements/${id}`, data);
+      return res.data;
+    },
+    delete: async (id: number): Promise<{ message: string }> => {
+      const res = await apiClient.delete(`/achievements/${id}`);
+      return res.data;
     }
   },
 
@@ -389,21 +503,41 @@ export const api = {
     create: async (data: Partial<Announcement>): Promise<Announcement> => {
       const res = await apiClient.post('/announcements/', data);
       return res.data;
+    },
+    update: async (id: number, data: Partial<Announcement>): Promise<Announcement> => {
+      const res = await apiClient.put(`/announcements/${id}`, data);
+      return res.data;
+    },
+    delete: async (id: number): Promise<{ message: string }> => {
+      const res = await apiClient.delete(`/announcements/${id}`);
+      return res.data;
     }
   },
 
   // Notifications
   notifications: {
-    list: async (): Promise<Notification[]> => {
-      const res = await apiClient.get('/notifications/');
+    list: async (params?: { is_read?: boolean; type?: string; search?: string }): Promise<Notification[]> => {
+      const res = await apiClient.get('/notifications/', { params });
       return res.data;
     },
     markRead: async (id: number): Promise<Notification> => {
       const res = await apiClient.put(`/notifications/${id}/read`);
       return res.data;
     },
+    markUnread: async (id: number): Promise<Notification> => {
+      const res = await apiClient.put(`/notifications/${id}/unread`);
+      return res.data;
+    },
     markAllRead: async () => {
       const res = await apiClient.put('/notifications/read-all');
+      return res.data;
+    },
+    delete: async (id: number) => {
+      const res = await apiClient.delete(`/notifications/${id}`);
+      return res.data;
+    },
+    clearAll: async (onlyRead: boolean = false) => {
+      const res = await apiClient.delete('/notifications/clear-all', { params: { only_read: onlyRead } });
       return res.data;
     }
   },
@@ -418,6 +552,14 @@ export const api = {
       const res = await apiClient.post('/documents/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
+      return res.data;
+    },
+    update: async (id: number, data: Partial<Document>): Promise<Document> => {
+      const res = await apiClient.put(`/documents/${id}`, data);
+      return res.data;
+    },
+    delete: async (id: number): Promise<{ message: string }> => {
+      const res = await apiClient.delete(`/documents/${id}`);
       return res.data;
     }
   },
@@ -440,7 +582,23 @@ export const api = {
       const res = await apiClient.get('/reports/member-dashboard');
       return res.data;
     },
-    exportCsvUrl: (entity: string) => `${API_BASE_URL}/reports/export-csv?entity=${entity}`
+    getDomainDashboard: async (domainId?: number): Promise<DomainDashboardStats> => {
+      const res = await apiClient.get('/reports/domain-dashboard', { params: domainId ? { domain_id: domainId } : {} });
+      return res.data;
+    },
+    exportCsvUrl: (entity: string) => {
+      const token = localStorage.getItem('techno_token');
+      return `${API_BASE_URL}/reports/export-csv?entity=${entity}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+    }
+  },
+
+  // File & Upload URL helper
+  getFileUrl: (filePath?: string): string => {
+    if (!filePath) return '';
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) return filePath;
+    const base = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+    const cleanPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+    return `${base}${cleanPath}`;
   },
 
   // Audit Logs

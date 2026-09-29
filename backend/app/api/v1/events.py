@@ -337,10 +337,31 @@ def mark_manual_attendance(
     if not payload.member_id and not payload.registration_id:
         raise HTTPException(status_code=400, detail="Member ID or Registration ID is required")
 
+    reg = None
+    if payload.registration_id:
+        reg = db.query(EventRegistration).filter(
+            EventRegistration.id == payload.registration_id,
+            EventRegistration.event_id == event_id
+        ).first()
+        existing = db.query(EventAttendance).filter(
+            EventAttendance.event_id == event_id,
+            EventAttendance.registration_id == payload.registration_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Attendance has already been marked for this participant")
+    elif payload.member_id:
+        existing = db.query(EventAttendance).filter(
+            EventAttendance.event_id == event_id,
+            EventAttendance.member_id == payload.member_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Attendance has already been marked for this participant")
+
+    member_id = payload.member_id or (reg.member_id if reg else None)
     att = EventAttendance(
         event_id=event_id,
         registration_id=payload.registration_id,
-        member_id=payload.member_id,
+        member_id=member_id,
         method="MANUAL",
         marked_by_id=current_user.member.id if current_user.member else None,
         notes=payload.notes or "Manual Check-in by Coordinator"
@@ -349,9 +370,9 @@ def mark_manual_attendance(
     db.commit()
     db.refresh(att)
 
-    attendee_name = att.member.full_name if att.member else "Participant"
-    attendee_email = att.member.email if att.member else ""
-    cid = att.member.college_id if att.member else None
+    attendee_name = att.member.full_name if att.member else (reg.attendee_name if reg else "Participant")
+    attendee_email = att.member.email if att.member else (reg.attendee_email if reg else "")
+    cid = att.member.college_id if att.member else (reg.college_id if reg else None)
 
     return EventAttendanceResponse(
         id=att.id,
@@ -363,3 +384,82 @@ def mark_manual_attendance(
         marked_at=att.marked_at,
         notes=att.notes
     )
+
+
+@router.post("/{event_id}/duplicate", response_model=EventResponse)
+def duplicate_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    ev = db.query(Event).filter(Event.id == event_id).first()
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    new_ev = Event(
+        name=f"Copy of {ev.name}",
+        event_type=ev.event_type,
+        description=ev.description,
+        domain_id=ev.domain_id,
+        organizer_id=current_user.member.id if current_user.member else ev.organizer_id,
+        start_time=ev.start_time,
+        end_time=ev.end_time,
+        venue=ev.venue,
+        capacity=ev.capacity,
+        registration_deadline=ev.registration_deadline,
+        budget=ev.budget,
+        status="Draft",
+        speakers=ev.speakers,
+        judges=ev.judges,
+        coordinators=ev.coordinators,
+        volunteers=ev.volunteers,
+        sponsors=ev.sponsors,
+        banner_url=ev.banner_url,
+        report_summary=None
+    )
+    db.add(new_ev)
+    db.flush()
+
+    log_audit_event(
+        db, current_user, "DUPLICATE", "Event", new_ev.id,
+        f"{current_user.email} duplicated event #{ev.id} to new event #{new_ev.id} ('{new_ev.name}')"
+    )
+
+    db.commit()
+    db.refresh(new_ev)
+    return build_event_response(new_ev, db)
+
+
+@router.delete("/{event_id}")
+def delete_event(
+    event_id: int,
+    archive: bool = False,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    ev = db.query(Event).filter(Event.id == event_id).first()
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    if archive or (ev.status == "Completed" and not force):
+        ev.status = "Cancelled" if ev.status != "Completed" else "Archived"
+        log_audit_event(
+            db, current_user, "ARCHIVE", "Event", ev.id,
+            f"Event '{ev.name}' archived/cancelled by {current_user.email}"
+        )
+        db.commit()
+        return {"message": f"Event '{ev.name}' status set to {ev.status}", "status": ev.status, "archived": True}
+
+    # Hard delete
+    db.query(EventAttendance).filter(EventAttendance.event_id == event_id).delete(synchronize_session=False)
+    db.query(EventRegistration).filter(EventRegistration.event_id == event_id).delete(synchronize_session=False)
+
+    log_audit_event(
+        db, current_user, "DELETE", "Event", ev.id,
+        f"Event '{ev.name}' permanently deleted by {current_user.email}"
+    )
+
+    db.delete(ev)
+    db.commit()
+    return {"message": f"Event '{ev.name}' successfully deleted", "archived": False}

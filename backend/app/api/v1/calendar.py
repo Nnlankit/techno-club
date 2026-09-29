@@ -11,6 +11,7 @@ router = APIRouter()
 
 
 @router.get("/")
+@router.get("/events")
 def get_unified_calendar(
     domain_id: Optional[int] = None,
     month: Optional[int] = None,

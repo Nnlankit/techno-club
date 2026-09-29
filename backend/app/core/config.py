@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,10 +14,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     
-    # Database: Supports PostgreSQL (primary production database) with automatic local dev fallback
+    # Database: Supports PostgreSQL via DATABASE_URL env var, defaults to pre-seeded local SQLite
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", 
-        "postgresql+psycopg2://postgres:postgres@localhost:5432/technoclub"
+        f"sqlite:///{(Path(__file__).resolve().parent.parent.parent / 'techno_club.db').as_posix()}"
     )
     
     # CORS

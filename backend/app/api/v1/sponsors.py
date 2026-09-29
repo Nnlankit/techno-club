@@ -39,7 +39,8 @@ def get_all_sponsors(
     stage: Optional[str] = None,
     tier: Optional[str] = None,
     event_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Treasurer"]))
 ):
     query = db.query(Sponsor)
     if stage:
@@ -111,3 +112,23 @@ def update_sponsor(
     db.commit()
     db.refresh(sp)
     return build_sponsor_response(sp)
+
+
+@router.delete("/{sponsor_id}")
+def delete_sponsor(
+    sponsor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Treasurer"]))
+):
+    sp = db.query(Sponsor).filter(Sponsor.id == sponsor_id).first()
+    if not sp:
+        raise HTTPException(status_code=404, detail="Sponsor not found")
+
+    log_audit_event(
+        db, current_user, "DELETE", "Sponsor", sp.id,
+        f"Sponsor '{sp.company_name}' removed by {current_user.email}"
+    )
+
+    db.delete(sp)
+    db.commit()
+    return {"message": f"Sponsor '{sp.company_name}' successfully removed"}

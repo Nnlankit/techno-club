@@ -105,6 +105,42 @@ def update_meeting_notes(
     for k, v in update_data.items():
         setattr(m, k, v)
 
+    log_audit_event(
+        db, current_user, "UPDATE_MEETING", "Meeting", m.id,
+        f"Meeting '{m.title}' updated by {current_user.email}",
+        diff=update_data
+    )
+
     db.commit()
     db.refresh(m)
     return build_meeting_response(m)
+
+
+@router.delete("/{meeting_id}")
+def delete_meeting(
+    meeting_id: int,
+    archive: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    m = db.query(Meeting).filter(Meeting.id == meeting_id).first()
+    if not m:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    if archive or m.status == "Completed":
+        m.status = "Cancelled"
+        log_audit_event(
+            db, current_user, "CANCEL_MEETING", "Meeting", m.id,
+            f"Meeting '{m.title}' cancelled by {current_user.email}"
+        )
+        db.commit()
+        return {"message": f"Meeting '{m.title}' cancelled", "status": "Cancelled", "archived": True}
+
+    log_audit_event(
+        db, current_user, "DELETE_MEETING", "Meeting", m.id,
+        f"Meeting '{m.title}' permanently deleted by {current_user.email}"
+    )
+
+    db.delete(m)
+    db.commit()
+    return {"message": f"Meeting '{m.title}' deleted successfully", "archived": False}

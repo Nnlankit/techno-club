@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any, Dict
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ProjectBase(BaseModel):
@@ -9,9 +9,9 @@ class ProjectBase(BaseModel):
     objective: Optional[str] = None
     domain_id: Optional[int] = None
     secondary_domains: Optional[List[str]] = []
-    project_lead_id: int
-    start_date: datetime
-    target_date: datetime
+    project_lead_id: Optional[int] = None
+    start_date: Optional[datetime] = None
+    target_date: Optional[datetime] = None
     completed_date: Optional[datetime] = None
     status: Optional[str] = "Planning"  # Planning, Active, On Hold, Review, Completed, Archived
     priority: Optional[str] = "Medium"  # Low, Medium, High, Critical
@@ -45,6 +45,11 @@ class ProjectUpdate(BaseModel):
     final_report: Optional[str] = None
 
 
+class ProjectMemberAdd(BaseModel):
+    member_id: int
+    role_in_project: Optional[str] = "Contributor"
+
+
 class ProjectMemberResponse(BaseModel):
     id: int
     member_id: int
@@ -53,8 +58,7 @@ class ProjectMemberResponse(BaseModel):
     role_in_project: str
     avatar_url: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProjectResponse(ProjectBase):
@@ -67,8 +71,7 @@ class ProjectResponse(ProjectBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskCommentBase(BaseModel):
@@ -87,8 +90,7 @@ class TaskCommentResponse(TaskCommentBase):
     author_avatar: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskBase(BaseModel):
@@ -138,8 +140,7 @@ class TaskResponse(TaskBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ActivityBase(BaseModel):
@@ -185,5 +186,4 @@ class ActivityResponse(ActivityBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

@@ -7,7 +7,7 @@ from app.core.deps import get_current_user, require_roles
 from app.models.user_role import User
 from app.models.member_domain import Member
 from app.models.operations import Achievement
-from app.schemas.operations import AchievementCreate, AchievementResponse
+from app.schemas.operations import AchievementCreate, AchievementUpdate, AchievementResponse
 from app.services.audit_service import log_audit_event
 
 router = APIRouter()
@@ -76,3 +76,49 @@ def create_achievement(
     db.commit()
     db.refresh(ach)
     return build_achievement_response(ach)
+
+
+@router.put("/{achievement_id}", response_model=AchievementResponse)
+def update_achievement(
+    achievement_id: int,
+    payload: AchievementUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    ach = db.query(Achievement).filter(Achievement.id == achievement_id).first()
+    if not ach:
+        raise HTTPException(status_code=404, detail="Achievement not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for k, v in update_data.items():
+        setattr(ach, k, v)
+
+    log_audit_event(
+        db, current_user, "UPDATE", "Achievement", ach.id,
+        f"Achievement '{ach.title}' updated by {current_user.email}",
+        diff=update_data
+    )
+
+    db.commit()
+    db.refresh(ach)
+    return build_achievement_response(ach)
+
+
+@router.delete("/{achievement_id}")
+def delete_achievement(
+    achievement_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    ach = db.query(Achievement).filter(Achievement.id == achievement_id).first()
+    if not ach:
+        raise HTTPException(status_code=404, detail="Achievement not found")
+
+    log_audit_event(
+        db, current_user, "DELETE", "Achievement", ach.id,
+        f"Achievement '{ach.title}' removed by {current_user.email}"
+    )
+
+    db.delete(ach)
+    db.commit()
+    return {"message": f"Achievement '{ach.title}' successfully removed"}

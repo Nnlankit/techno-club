@@ -1,44 +1,43 @@
 # PowerShell Platform Launcher for Techno Club Management OS
-Write-Host "=====================================================================" -ForegroundColor Cyan
-Write-Host "      Starting Techno Club Management & Operations Platform          " -ForegroundColor Cyan
-Write-Host "=====================================================================" -ForegroundColor Cyan
-Write-Host ""
+# Designed to run directly inside VS Code's integrated PowerShell terminal
+# without popping up any external CMD, PowerShell, or browser windows.
+param(
+    [switch]$OpenBrowser,
+    [switch]$SeparateWindows
+)
 
 $baseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $baseDir) { $baseDir = Get-Location }
 
-# 1. Initialize Database
-Write-Host "[1/3] Initializing Database & Seed Records..." -ForegroundColor Yellow
-$backendPython = Join-Path $baseDir "backend\.venv\Scripts\python.exe"
-$initScript = "import app.db.init_db; print('Database initialized successfully.')"
-& $backendPython -m app.db.init_db
+# Option: Separate Windows (only if explicitly requested via -SeparateWindows)
+if ($SeparateWindows) {
+    $backendPs1 = Join-Path $baseDir "backend\run_backend.ps1"
+    $frontendPs1 = Join-Path $baseDir "frontend\run_frontend.ps1"
+    $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh.exe" } else { "powershell.exe" }
 
-# 2. Launch Backend in new window
-Write-Host "[2/3] Launching FastAPI Backend on http://localhost:8000 ..." -ForegroundColor Yellow
-$backendDir = Join-Path $baseDir "backend"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$backendDir'; .\.venv\Scripts\Activate.ps1; uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    Write-Host "[1/2] Launching Backend in external window..." -ForegroundColor Yellow
+    Start-Process $psExe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$backendPs1`""
 
-Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 2
 
-# 3. Launch Frontend in new window
-Write-Host "[3/3] Launching Vite Frontend on http://localhost:5173 ..." -ForegroundColor Yellow
-$frontendDir = Join-Path $baseDir "frontend"
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$frontendDir'; npm run dev"
+    Write-Host "[2/2] Launching Frontend in external window..." -ForegroundColor Yellow
+    Start-Process $psExe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$frontendPs1`""
 
-Start-Sleep -Seconds 3
+    if ($OpenBrowser) {
+        Start-Process "http://localhost:5173"
+    }
+    exit
+}
 
-Write-Host ""
-Write-Host "=====================================================================" -ForegroundColor Green
-Write-Host "  Platform is running successfully!" -ForegroundColor Green
-Write-Host "  - Frontend Portal: http://localhost:5173" -ForegroundColor Green
-Write-Host "  - Backend REST API: http://localhost:8000" -ForegroundColor Green
-Write-Host "  - Swagger Documentation: http://localhost:8000/docs" -ForegroundColor Green
-Write-Host ""
-Write-Host "  Default Credentials:" -ForegroundColor White
-Write-Host "    President: president@technoclub.org / TechnoClub@2026" -ForegroundColor White
-Write-Host "    Vice President: vp@technoclub.org / TechnoClub@2026" -ForegroundColor White
-Write-Host "    AI/ML Head: aiml.head@technoclub.org / TechnoClub@2026" -ForegroundColor White
-Write-Host "    Treasurer: treasurer@technoclub.org / TechnoClub@2026" -ForegroundColor White
-Write-Host "    Member: member1@technoclub.org / TechnoClub@2026" -ForegroundColor White
-Write-Host "=====================================================================" -ForegroundColor Green
+# Default Mode: Run 100% inside the current VS Code terminal (No external windows!)
+$venvPy = Join-Path $baseDir "backend\.venv\Scripts\python.exe"
+$pyExe = if (Test-Path $venvPy) { $venvPy } else { "python" }
+$startPy = Join-Path $baseDir "start.py"
 
-Start-Process "http://localhost:5173"
+$pyArgs = @($startPy)
+if ($OpenBrowser) {
+    $pyArgs += "--open-browser"
+}
+
+# Run directly within the active VS Code terminal
+& $pyExe @pyArgs

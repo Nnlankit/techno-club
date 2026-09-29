@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building2, DollarSign, Handshake, Mail, Phone, Globe, 
-  Plus, CheckCircle2, ArrowRight, FileCheck2, Clock, Sparkles, Filter
+  Plus, CheckCircle2, ArrowRight, FileCheck2, Clock, Sparkles, Filter,
+  Edit3, Trash2
 } from 'lucide-react';
 import { api } from '../services/api';
 import { Sponsor, Event } from '../types';
-import { StatusBadge } from '../components/StatusBadge';
-import { Modal } from '../components/Modal';
-import { StatCard } from '../components/StatCard';
+import { 
+  Button, Badge, Modal, PageHeader, EmptyState, LoadingState, Card,
+  ConfirmationDialog, Toast
+} from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 
 const STAGES: Array<Sponsor['stage']> = [
@@ -24,6 +26,11 @@ export const SponsorsPage: React.FC = () => {
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStage, setSelectedStage] = useState('All');
+  const [selectedTier, setSelectedTier] = useState('All');
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -42,6 +49,29 @@ export const SponsorsPage: React.FC = () => {
   const [benefits, setBenefits] = useState('');
   const [mouSigned, setMouSigned] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState('Pending');
+
+  // Edit Sponsor Form State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingSponsor, setEditingSponsor] = useState<Sponsor | null>(null);
+  const [editCompanyName, setEditCompanyName] = useState('');
+  const [editContactPerson, setEditContactPerson] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editWebsite, setEditWebsite] = useState('');
+  const [editTier, setEditTier] = useState('Platinum');
+  const [editStage, setEditStage] = useState<Sponsor['stage']>('Prospect');
+  const [editAmount, setEditAmount] = useState('');
+  const [editEventId, setEditEventId] = useState<number | undefined>(undefined);
+  const [editBenefits, setEditBenefits] = useState('');
+  const [editMouSigned, setEditMouSigned] = useState(false);
+  const [editPaymentStatus, setEditPaymentStatus] = useState('Pending');
+
+  // Delete State
+  const [sponsorToDelete, setSponsorToDelete] = useState<Sponsor | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  // Toast
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -112,6 +142,66 @@ export const SponsorsPage: React.FC = () => {
     setPaymentStatus('Pending');
   };
 
+  const handleOpenEdit = (sponsor: Sponsor) => {
+    setEditingSponsor(sponsor);
+    setEditCompanyName(sponsor.company_name);
+    setEditContactPerson(sponsor.contact_person || '');
+    setEditEmail(sponsor.email || '');
+    setEditPhone(sponsor.phone || '');
+    setEditWebsite(sponsor.website || '');
+    setEditTier(sponsor.tier);
+    setEditStage(sponsor.stage);
+    setEditAmount(sponsor.amount ? String(sponsor.amount) : '');
+    setEditEventId(sponsor.event_id);
+    setEditBenefits(sponsor.benefits || '');
+    setEditMouSigned(sponsor.mou_signed);
+    setEditPaymentStatus(sponsor.payment_status || 'Pending');
+    setShowEditModal(true);
+  };
+
+  const handleUpdateSponsor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSponsor) return;
+    try {
+      await api.sponsors.update(editingSponsor.id, {
+        company_name: editCompanyName,
+        contact_person: editContactPerson,
+        email: editEmail,
+        phone: editPhone,
+        website: editWebsite,
+        tier: editTier,
+        stage: editStage,
+        amount: Number(editAmount) || 0,
+        event_id: editEventId,
+        benefits: editBenefits,
+        mou_signed: editMouSigned,
+        payment_status: editPaymentStatus,
+      });
+      setShowEditModal(false);
+      setEditingSponsor(null);
+      setToast({ message: `Partner "${editCompanyName}" updated successfully`, type: 'success' });
+      loadData();
+    } catch (err: any) {
+      setToast({ message: err.response?.data?.detail || 'Failed to update partner', type: 'error' });
+    }
+  };
+
+  const handleDeleteSponsor = async () => {
+    if (!sponsorToDelete) return;
+    try {
+      await api.sponsors.delete(sponsorToDelete.id);
+      setShowDeleteDialog(false);
+      setToast({ message: `Partner "${sponsorToDelete.company_name}" removed successfully`, type: 'success' });
+      setSponsorToDelete(null);
+      if (selectedSponsor && selectedSponsor.id === sponsorToDelete.id) {
+        setSelectedSponsor(null);
+      }
+      loadData();
+    } catch (err: any) {
+      setToast({ message: err.response?.data?.detail || 'Failed to delete partner', type: 'error' });
+    }
+  };
+
   // KPIs
   const totalRaised = sponsors
     .filter(s => s.stage === 'Confirmed' || s.stage === 'Completed')
@@ -121,185 +211,384 @@ export const SponsorsPage: React.FC = () => {
   const confirmedCount = sponsors.filter(s => s.stage === 'Confirmed' || s.stage === 'Completed').length;
   const mouCount = sponsors.filter(s => s.mou_signed).length;
 
+  const filteredSponsors = sponsors.filter((s) => {
+    const matchStage = selectedStage === 'All' || s.stage === selectedStage;
+    const matchTier = selectedTier === 'All' || s.tier === selectedTier;
+    const matchSearch = 
+      s.company_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.contact_person && s.contact_person.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (s.email && s.email.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchStage && matchTier && matchSearch;
+  });
+
+  const canManageSponsors = hasRole(['President', 'Vice President', 'Treasurer']);
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
-            <span>Corporate Sponsorship & Partner Pipeline</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-              {sponsors.length} Corporate Partners
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Track industry relations, MOUs, brand deliverables, tier deliverables, and payment milestones.
-          </p>
-        </div>
-        {hasRole(['President', 'Vice President', 'Treasurer']) && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Partner / Lead</span>
-          </button>
-        )}
-      </div>
+      {/* Section 9 Page Header */}
+      <PageHeader
+        title="Sponsors"
+        description="Corporate sponsorships, industry relations, brand partnerships, and sponsorship pipeline management."
+        searchProps={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: 'Search partners by company name, contact, email...'
+        }}
+        filterProps={{
+          filters: [
+            {
+              key: 'stage',
+              label: 'Pipeline Stage',
+              value: selectedStage,
+              onChange: setSelectedStage,
+              options: [
+                { label: 'All Stages', value: 'All' },
+                ...STAGES.map(st => ({ label: st, value: st }))
+              ]
+            },
+            {
+              key: 'tier',
+              label: 'Sponsorship Tier',
+              value: selectedTier,
+              onChange: setSelectedTier,
+              options: [
+                { label: 'All Tiers', value: 'All' },
+                { label: 'Title Partner', value: 'Title' },
+                { label: 'Platinum Partner', value: 'Platinum' },
+                { label: 'Gold Partner', value: 'Gold' },
+                { label: 'Silver Partner', value: 'Silver' },
+                { label: 'Bronze Partner', value: 'Bronze' },
+              ]
+            }
+          ]
+        }}
+        primaryAction={
+          canManageSponsors
+            ? {
+                label: 'Add Partner',
+                icon: <Plus className="w-4 h-4" />,
+                onClick: () => setShowAddModal(true)
+              }
+            : undefined
+        }
+      />
 
-      {/* KPI Cards */}
+      {/* KPI Cards (Section 11) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Confirmed Sponsorship"
-          value={`$${totalRaised.toLocaleString()}`}
-          subtitle="Signed MOUs & committed grants"
-          icon={<DollarSign className="w-5 h-5 text-emerald-500" />}
-          color="emerald"
-        />
-        <StatCard
-          title="Total Pipeline Potential"
-          value={`$${pipelineValue.toLocaleString()}`}
-          subtitle="All active leads & proposals"
-          icon={<Handshake className="w-5 h-5 text-indigo-500" />}
-          color="indigo"
-        />
-        <StatCard
-          title="Confirmed Partners"
-          value={confirmedCount.toString()}
-          subtitle="Title, Gold, Silver & Community"
-          icon={<Building2 className="w-5 h-5 text-cyan-500" />}
-          color="cyan"
-        />
-        <StatCard
-          title="Signed MOUs"
-          value={mouCount.toString()}
-          subtitle="Legal agreements executed"
-          icon={<FileCheck2 className="w-5 h-5 text-purple-500" />}
-          color="purple"
-        />
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Confirmed Capital</span>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400 flex items-center justify-center">
+              <DollarSign className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-2">
+            ₹{totalRaised.toLocaleString()}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Confirmed & signed industry sponsorships
+          </p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Pipeline Potential</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 flex items-center justify-center">
+              <Sparkles className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">
+            ₹{pipelineValue.toLocaleString()}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Total active leads across all negotiation stages
+          </p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Confirmed Partners</span>
+            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400 flex items-center justify-center">
+              <Handshake className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-purple-600 dark:text-purple-400 mt-2">
+            {confirmedCount}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Companies locked for upcoming club events
+          </p>
+        </Card>
+
+        <Card className="p-4 shadow-xs">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
+            <span>Executed MOUs</span>
+            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 flex items-center justify-center">
+              <FileCheck2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-slate-900 dark:text-white mt-2">
+            {mouCount}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Legal memorandums on file with the college
+          </p>
+        </Card>
       </div>
 
-      {/* Pipeline Stages Grid (Kanban Style) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3.5">
-        {STAGES.map((currentStage, stageIdx) => {
-          const stageSponsors = sponsors.filter(s => s.stage === currentStage);
-          const stageAmount = stageSponsors.reduce((acc, s) => acc + (s.amount || 0), 0);
+      {/* Main Content Area */}
+      {loading ? (
+        <LoadingState message="Loading corporate sponsorship pipeline..." />
+      ) : filteredSponsors.length === 0 ? (
+        <EmptyState
+          title="No Partners Found"
+          description="No sponsorship records matched your query. Add a new prospective company or clear filters."
+          action={
+            canManageSponsors
+              ? {
+                  label: 'Add Partner',
+                  icon: <Plus className="w-4 h-4" />,
+                  onClick: () => setShowAddModal(true)
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredSponsors.map((s) => {
+            const currentStageIdx = STAGES.indexOf(s.stage);
+            const nextStage = currentStageIdx < STAGES.length - 1 ? STAGES[currentStageIdx + 1] : null;
 
-          return (
-            <div
-              key={currentStage}
-              className="flex flex-col bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-xl p-3"
-            >
-              {/* Stage Header */}
-              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800 mb-2">
-                <div className="flex items-center space-x-1.5">
-                  <span className="w-2 h-2 rounded-full bg-indigo-600 dark:bg-indigo-400" />
-                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                    {currentStage}
-                  </span>
-                </div>
-                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
-                  {stageSponsors.length}
-                </span>
-              </div>
+            return (
+              <Card
+                key={s.id}
+                className="p-5 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all flex flex-col justify-between shadow-xs space-y-4"
+              >
+                <div className="space-y-3">
+                  {/* Top Bar: Tier & Status */}
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[11px] uppercase tracking-wider px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                      {s.tier} Tier
+                    </span>
+                    <Badge status={s.stage} />
+                  </div>
 
-              <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-2">
-                ${stageAmount.toLocaleString()}
-              </div>
+                  {/* Company Name & Amount */}
+                  <div>
+                    <h3 
+                      onClick={() => setSelectedSponsor(s)}
+                      className="text-base font-bold text-slate-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors"
+                    >
+                      {s.company_name}
+                    </h3>
+                    <div className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                      ₹{s.amount?.toLocaleString() || 0}
+                    </div>
+                  </div>
 
-              {/* Sponsor Cards in Stage */}
-              <div className="space-y-2.5 flex-1 min-h-[140px]">
-                {stageSponsors.map(sponsor => (
-                  <div
-                    key={sponsor.id}
-                    className="p-3 bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 rounded-lg shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all space-y-2"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="font-bold text-xs text-slate-900 dark:text-white leading-tight">
-                        {sponsor.company_name}
+                  {/* Contact Info */}
+                  <div className="space-y-1.5 text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    {s.contact_person && (
+                      <div className="truncate">
+                        Contact: <strong className="text-slate-700 dark:text-slate-300">{s.contact_person}</strong>
                       </div>
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                        sponsor.tier === 'Title' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
-                        sponsor.tier === 'Platinum' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
-                        sponsor.tier === 'Gold' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300' :
-                        'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300'
-                      }`}>
-                        {sponsor.tier}
-                      </span>
-                    </div>
-
-                    <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                      ${sponsor.amount.toLocaleString()}
-                    </div>
-
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
-                      <div className="truncate font-medium">{sponsor.contact_person}</div>
-                      {sponsor.event_name && (
-                        <div className="text-[10px] text-indigo-600 dark:text-indigo-400 truncate">
-                          Event: {sponsor.event_name}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/60 text-[10px]">
-                      <span className={sponsor.mou_signed ? 'text-emerald-600 dark:text-emerald-400 font-semibold' : 'text-slate-400'}>
-                        {sponsor.mou_signed ? '✓ MOU Signed' : 'MOU Pending'}
-                      </span>
-                      <span className="font-mono text-slate-500">
-                        {sponsor.payment_status}
-                      </span>
-                    </div>
-
-                    {/* Stage shift actions */}
-                    {hasRole(['President', 'Vice President', 'Treasurer']) && stageIdx < STAGES.length - 1 && (
-                      <button
-                        onClick={() => handleAdvanceStage(sponsor, STAGES[stageIdx + 1])}
-                        className="w-full mt-1.5 py-1 px-2 rounded bg-slate-50 dark:bg-slate-700/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-[10px] font-semibold flex items-center justify-center space-x-1 transition-colors"
-                      >
-                        <span>Move to {STAGES[stageIdx + 1]}</span>
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
+                    )}
+                    {s.email && (
+                      <div className="flex items-center space-x-1.5 truncate">
+                        <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate">{s.email}</span>
+                      </div>
                     )}
                   </div>
-                ))}
+
+                  {/* MOU & Payment Indicators */}
+                  <div className="flex items-center gap-2 pt-1 text-[11px]">
+                    <span className={`px-2 py-0.5 rounded font-medium ${
+                      s.mou_signed 
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' 
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                    }`}>
+                      {s.mou_signed ? 'MOU Signed' : 'MOU Pending'}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded font-medium ${
+                      s.payment_status === 'Received'
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                        : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                    }`}>
+                      Payment: {s.payment_status || 'Pending'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Footer Actions */}
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                  <div className="flex items-center space-x-1.5">
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() => setSelectedSponsor(s)}
+                    >
+                      View Details
+                    </Button>
+
+                    {canManageSponsors && (
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => handleOpenEdit(s)}
+                          title="Edit Partner"
+                          className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSponsorToDelete(s);
+                            setShowDeleteDialog(true);
+                          }}
+                          title="Delete Partner"
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {canManageSponsors && nextStage && (
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      onClick={() => handleAdvanceStage(s, nextStage)}
+                    >
+                      <span>Advance to {nextStage}</span>
+                      <ArrowRight className="w-3 h-3 ml-1" />
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Sponsor Details Modal */}
+      {selectedSponsor && (
+        <Modal
+          isOpen={!!selectedSponsor}
+          onClose={() => setSelectedSponsor(null)}
+          title={selectedSponsor.company_name}
+          subtitle={`${selectedSponsor.tier} Partner • Stage: ${selectedSponsor.stage}`}
+          maxWidth="lg"
+        >
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase text-slate-400">Committed Amount</span>
+                <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                  ₹{selectedSponsor.amount?.toLocaleString() || 0}
+                </div>
+              </div>
+              <Badge status={selectedSponsor.stage} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Lead Representative</span>
+                <div className="font-semibold text-slate-900 dark:text-white">{selectedSponsor.contact_person || 'Not specified'}</div>
+                <div className="text-slate-500">{selectedSponsor.email}</div>
+                <div className="text-slate-500">{selectedSponsor.phone || 'No phone'}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-50/50 dark:bg-slate-800/30 border border-slate-100 dark:border-slate-800 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Legal & Payment Status</span>
+                <div>MOU Signed: <strong>{selectedSponsor.mou_signed ? 'Yes (Archived)' : 'No (In Draft)'}</strong></div>
+                <div>Payment: <strong>{selectedSponsor.payment_status || 'Pending'}</strong></div>
+                <div>Website: {selectedSponsor.website ? <a href={selectedSponsor.website} target="_blank" rel="noreferrer" className="text-blue-600 underline">Visit Link</a> : 'None'}</div>
               </div>
             </div>
-          );
-        })}
-      </div>
+
+            {selectedSponsor.benefits && (
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Deliverables & Sponsor Benefits
+                </h4>
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                  {selectedSponsor.benefits}
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-800">
+              {canManageSponsors ? (
+                <div className="flex space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      handleOpenEdit(selectedSponsor);
+                    }}
+                    icon={<Edit3 className="w-3.5 h-3.5" />}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                    onClick={() => {
+                      setSponsorToDelete(selectedSponsor);
+                      setShowDeleteDialog(true);
+                    }}
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              ) : <div />}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedSponsor(null)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Add Sponsor Modal */}
       <Modal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        title="Add Corporate Partner / Sponsor"
+        title="Add Corporate Partner Lead"
+        subtitle="Track company sponsorship inquiries, grant pledges, and MOUs"
+        maxWidth="lg"
       >
         <form onSubmit={handleCreateSponsor} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Company / Organization *
+                Company / Organization
               </label>
               <input
                 type="text"
                 required
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="e.g. Google Cloud, GitHub, Red Hat"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                placeholder="e.g. Google Cloud, Red Hat, Local Tech Co"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Contact Person Name *
+                Contact Person
               </label>
               <input
                 type="text"
-                required
                 value={contactPerson}
                 onChange={(e) => setContactPerson(e.target.value)}
-                placeholder="e.g. John Doe (University Relations)"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                placeholder="HR / University Relations Manager"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -307,15 +596,14 @@ export const SponsorsPage: React.FC = () => {
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Email Address *
+                Email
               </label>
               <input
                 type="email"
-                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="partner@company.com"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -326,8 +614,8 @@ export const SponsorsPage: React.FC = () => {
                 type="text"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="+1 555 123 4567"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                placeholder="+91 98765 43210"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -339,7 +627,7 @@ export const SponsorsPage: React.FC = () => {
                 value={website}
                 onChange={(e) => setWebsite(e.target.value)}
                 placeholder="https://company.com"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -347,126 +635,306 @@ export const SponsorsPage: React.FC = () => {
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Sponsorship Tier *
+                Sponsorship Tier
               </label>
               <select
                 value={tier}
                 onChange={(e) => setTier(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="Title">Title Sponsor</option>
-                <option value="Platinum">Platinum ($5,000+)</option>
-                <option value="Gold">Gold ($2,500)</option>
-                <option value="Silver">Silver ($1,000)</option>
-                <option value="Community">Community / Swag</option>
+                <option value="Title">Title Partner</option>
+                <option value="Platinum">Platinum Partner</option>
+                <option value="Gold">Gold Partner</option>
+                <option value="Silver">Silver Partner</option>
+                <option value="Bronze">Bronze Partner</option>
               </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Pipeline Stage *
+                Pipeline Stage
               </label>
               <select
                 value={stage}
                 onChange={(e) => setStage(e.target.value as any)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {STAGES.map(s => (
-                  <option key={s} value={s}>{s}</option>
+                {STAGES.map(st => (
+                  <option key={st} value={st}>{st}</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Committed Amount ($) *
+                Amount (₹)
               </label>
               <input
                 type="number"
                 min="0"
-                required
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="2500"
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                placeholder="50000"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Target Flagship Event
-              </label>
-              <select
-                value={eventId || ''}
-                onChange={(e) => setEventId(e.target.value ? Number(e.target.value) : undefined)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-              >
-                <option value="">Club-wide Annual Partnership</option>
-                {events.map(ev => (
-                  <option key={ev.id} value={ev.id}>{ev.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Payment Status
-              </label>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Agreed Deliverables & Benefits
+            </label>
+            <textarea
+              rows={3}
+              value={benefits}
+              onChange={(e) => setBenefits(e.target.value)}
+              placeholder="Keynote speech slot, banner placement, student CV access, prize naming..."
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="flex items-center space-x-6 text-xs text-slate-700 dark:text-slate-300">
+            <label className="flex items-center space-x-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={mouSigned}
+                onChange={(e) => setMouSigned(e.target.checked)}
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>MOU Formally Signed</span>
+            </label>
+
+            <label className="flex items-center space-x-2">
+              <span>Payment Status:</span>
               <select
                 value={paymentStatus}
                 onChange={(e) => setPaymentStatus(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="px-2 py-1 rounded-lg text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
               >
-                <option value="Pending">Pending Invoice</option>
+                <option value="Pending">Pending</option>
                 <option value="Invoiced">Invoiced</option>
-                <option value="Partial">Partial Received</option>
-                <option value="Received">Received / Cleared</option>
+                <option value="Received">Received</option>
               </select>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="mouCheck"
-              checked={mouSigned}
-              onChange={(e) => setMouSigned(e.target.checked)}
-              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-            />
-            <label htmlFor="mouCheck" className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              Formal Memorandum of Understanding (MOU) executed & signed
             </label>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Agreed Deliverables & Brand Perks
-            </label>
-            <textarea
-              rows={2}
-              value={benefits}
-              onChange={(e) => setBenefits(e.target.value)}
-              placeholder="e.g. Logo on hackathon merchandise, key opening address, recruitment access to participant resume drop."
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
-            />
-          </div>
-
-          <div className="flex justify-end space-x-2 pt-3">
-            <button
+          <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setShowAddModal(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              variant="primary"
             >
-              Save Partner
-            </button>
+              Add Partner
+            </Button>
           </div>
         </form>
       </Modal>
+
+      {/* Edit Sponsor Modal */}
+      {editingSponsor && (
+        <Modal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingSponsor(null);
+          }}
+          title={`Edit Corporate Partner: ${editingSponsor.company_name}`}
+          subtitle="Update sponsorship terms, tier, pipeline stage, and payment details"
+          maxWidth="lg"
+        >
+          <form onSubmit={handleUpdateSponsor} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Company / Organization
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editCompanyName}
+                  onChange={(e) => setEditCompanyName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Contact Person
+                </label>
+                <input
+                  type="text"
+                  value={editContactPerson}
+                  onChange={(e) => setEditContactPerson(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Phone
+                </label>
+                <input
+                  type="text"
+                  value={editPhone}
+                  onChange={(e) => setEditPhone(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Website
+                </label>
+                <input
+                  type="url"
+                  value={editWebsite}
+                  onChange={(e) => setEditWebsite(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Sponsorship Tier
+                </label>
+                <select
+                  value={editTier}
+                  onChange={(e) => setEditTier(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Title">Title Partner</option>
+                  <option value="Platinum">Platinum Partner</option>
+                  <option value="Gold">Gold Partner</option>
+                  <option value="Silver">Silver Partner</option>
+                  <option value="Bronze">Bronze Partner</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Pipeline Stage
+                </label>
+                <select
+                  value={editStage}
+                  onChange={(e) => setEditStage(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {STAGES.map(st => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Agreed Deliverables & Benefits
+              </label>
+              <textarea
+                rows={3}
+                value={editBenefits}
+                onChange={(e) => setEditBenefits(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex items-center space-x-6 text-xs text-slate-700 dark:text-slate-300">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editMouSigned}
+                  onChange={(e) => setEditMouSigned(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>MOU Formally Signed</span>
+              </label>
+
+              <label className="flex items-center space-x-2">
+                <span>Payment Status:</span>
+                <select
+                  value={editPaymentStatus}
+                  onChange={(e) => setEditPaymentStatus(e.target.value)}
+                  className="px-2 py-1 rounded-lg text-xs border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                >
+                  <option value="Pending">Pending</option>
+                  <option value="Invoiced">Invoiced</option>
+                  <option value="Received">Received</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingSponsor(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+              >
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={showDeleteDialog}
+        title="Remove Corporate Partner"
+        message={`Are you sure you want to delete corporate partner "${sponsorToDelete?.company_name}"? All associated pipeline logs will be removed.`}
+        confirmLabel="Delete Partner"
+        confirmVariant="danger"
+        onConfirm={handleDeleteSponsor}
+        onCancel={() => {
+          setShowDeleteDialog(false);
+          setSponsorToDelete(null);
+        }}
+      />
+
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 };

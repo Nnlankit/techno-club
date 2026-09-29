@@ -339,3 +339,47 @@ def get_hackathon_leaderboard(hackathon_id: int, db: Session = Depends(get_db)):
             submitted_at=s.submitted_at
         ))
     return results
+
+
+@router.delete("/{hackathon_id}")
+def delete_hackathon(
+    hackathon_id: int,
+    archive: bool = False,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    h = db.query(Hackathon).filter(Hackathon.id == hackathon_id).first()
+    if not h:
+        raise HTTPException(status_code=404, detail="Hackathon not found")
+
+    teams_cnt = db.query(HackathonTeam).filter(HackathonTeam.hackathon_id == h.id).count()
+    subs_cnt = db.query(HackathonSubmission).filter(HackathonSubmission.hackathon_id == h.id).count()
+
+    if archive or (subs_cnt > 0 and not force):
+        h.status = "Cancelled"
+        log_audit_event(
+            db, current_user, "ARCHIVE", "Hackathon", h.id,
+            f"Hackathon '{h.title}' marked as Cancelled/Archived by {current_user.email}"
+        )
+        db.commit()
+        return {"message": f"Hackathon '{h.title}' status set to Cancelled", "status": "Cancelled", "archived": True}
+
+    if teams_cnt > 0 and not force:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hackathon '{h.title}' has {teams_cnt} registered teams. Please archive it or pass force=true."
+        )
+
+    # Hard delete
+    db.query(HackathonSubmission).filter(HackathonSubmission.hackathon_id == hackathon_id).delete(synchronize_session=False)
+    db.query(HackathonTeam).filter(HackathonTeam.hackathon_id == hackathon_id).delete(synchronize_session=False)
+
+    log_audit_event(
+        db, current_user, "DELETE", "Hackathon", h.id,
+        f"Hackathon '{h.title}' permanently deleted by {current_user.email}"
+    )
+
+    db.delete(h)
+    db.commit()
+    return {"message": f"Hackathon '{h.title}' permanently deleted", "archived": False}

@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 
 class EventBase(BaseModel):
@@ -60,8 +60,7 @@ class EventResponse(EventBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EventRegistrationCreate(BaseModel):
@@ -86,8 +85,7 @@ class EventRegistrationResponse(BaseModel):
     registered_at: datetime
     attended: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EventAttendanceCreate(BaseModel):
@@ -109,8 +107,7 @@ class EventAttendanceResponse(BaseModel):
     marked_at: datetime
     notes: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HackathonBase(BaseModel):
@@ -164,8 +161,7 @@ class HackathonResponse(HackathonBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HackathonTeamCreate(BaseModel):
@@ -189,8 +185,7 @@ class HackathonTeamResponse(BaseModel):
     created_at: datetime
     has_submission: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class HackathonSubmissionCreate(BaseModel):
@@ -232,5 +227,4 @@ class HackathonSubmissionResponse(BaseModel):
     judge_feedback: Optional[str] = None
     submitted_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

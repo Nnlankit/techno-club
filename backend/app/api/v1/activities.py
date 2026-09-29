@@ -41,13 +41,23 @@ def get_all_activities(
     activity_type: Optional[str] = None,
     domain_id: Optional[int] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = db.query(Activity)
+    user_role = current_user.role.name if current_user.role else "Member"
+
+    if user_role in ["Domain Head", "Technical Lead"]:
+        user_domain_id = current_user.member.domain_id if current_user.member else None
+        if user_domain_id:
+            query = query.filter(Activity.domain_id == user_domain_id)
+        elif domain_id:
+            query = query.filter(Activity.domain_id == domain_id)
+    elif domain_id:
+        query = query.filter(Activity.domain_id == domain_id)
+
     if activity_type:
         query = query.filter(Activity.activity_type == activity_type)
-    if domain_id:
-        query = query.filter(Activity.domain_id == domain_id)
     if status_filter:
         query = query.filter(Activity.status == status_filter)
 
@@ -106,6 +116,42 @@ def update_activity(
     for k, v in update_data.items():
         setattr(act, k, v)
 
+    log_audit_event(
+        db, current_user, "UPDATE", "Activity", act.id,
+        f"Activity '{act.title}' updated by {current_user.email}",
+        diff=update_data
+    )
+
     db.commit()
     db.refresh(act)
     return build_activity_response(act)
+
+
+@router.delete("/{activity_id}")
+def delete_activity(
+    activity_id: int,
+    archive: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    act = db.query(Activity).filter(Activity.id == activity_id).first()
+    if not act:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    if archive or act.status == "Completed":
+        act.status = "Cancelled"
+        log_audit_event(
+            db, current_user, "CANCEL", "Activity", act.id,
+            f"Activity '{act.title}' cancelled by {current_user.email}"
+        )
+        db.commit()
+        return {"message": f"Activity '{act.title}' cancelled", "status": "Cancelled", "archived": True}
+
+    log_audit_event(
+        db, current_user, "DELETE", "Activity", act.id,
+        f"Activity '{act.title}' permanently deleted by {current_user.email}"
+    )
+
+    db.delete(act)
+    db.commit()
+    return {"message": f"Activity '{act.title}' deleted successfully", "archived": False}

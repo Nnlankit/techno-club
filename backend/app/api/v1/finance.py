@@ -55,7 +55,7 @@ def build_expense_response(e: Expense) -> ExpenseResponse:
 @router.get("/budgets", response_model=List[BudgetResponse])
 def get_budgets(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(["President", "Vice President", "Treasurer", "Faculty Coordinator"]))
+    current_user: User = Depends(require_roles(["Super Admin", "President", "Vice President", "Treasurer", "Faculty Coordinator"]))
 ):
     budgets = db.query(Budget).order_by(desc(Budget.created_at)).all()
     return [build_budget_response(b) for b in budgets]
@@ -65,7 +65,7 @@ def get_budgets(
 def create_budget(
     payload: BudgetCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(["President", "Treasurer"]))
+    current_user: User = Depends(require_roles(["Super Admin", "President", "Vice President", "Treasurer"]))
 ):
     b = Budget(
         title=payload.title,
@@ -95,7 +95,7 @@ def get_expenses(
     event_id: Optional[int] = None,
     status_filter: Optional[str] = Query(None, alias="status"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles(["Super Admin", "President", "Vice President", "Treasurer", "Faculty Coordinator"]))
 ):
     query = db.query(Expense)
     if event_id:

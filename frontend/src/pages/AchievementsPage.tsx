@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Award, Trophy, Star, Medal, Sparkles, Plus, 
-  ExternalLink, Calendar, Search, Filter, ShieldCheck
+  ExternalLink, Calendar, Search, Filter, ShieldCheck,
+  Edit3, Trash2
 } from 'lucide-react';
 import { api } from '../services/api';
 import { Achievement, Member } from '../types';
-import { Modal } from '../components/Modal';
+import { 
+  Button, Badge, Modal, PageHeader, EmptyState, LoadingState, Card, Avatar,
+  ConfirmationDialog, Toast
+} from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 
 const CATEGORIES = [
@@ -39,9 +43,24 @@ export const AchievementsPage: React.FC = () => {
   const [proofUrl, setProofUrl] = useState('');
   const [isFeatured, setIsFeatured] = useState(true);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // Edit Modal State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingAchievement, setEditingAchievement] = useState<Achievement | null>(null);
+  const [editMemberId, setEditMemberId] = useState<number | undefined>(undefined);
+  const [editTitle, setEditTitle] = useState('');
+  const [editCategory, setEditCategory] = useState('Hackathon Winner');
+  const [editDescription, setEditDescription] = useState('');
+  const [editBadgeIcon, setBadgeIconEdit] = useState('Trophy');
+  const [editAchievementDate, setEditAchievementDate] = useState(new Date().toISOString().split('T')[0]);
+  const [editProofUrl, setEditProofUrl] = useState('');
+  const [editIsFeatured, setEditIsFeatured] = useState(true);
+
+  // Delete State
+  const [achievementToDelete, setAchievementToDelete] = useState<Achievement | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  // Toast
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -58,6 +77,10 @@ export const AchievementsPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const handleCreateAchievement = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +119,55 @@ export const AchievementsPage: React.FC = () => {
     setIsFeatured(true);
   };
 
+  const handleOpenEdit = (ach: Achievement) => {
+    setEditingAchievement(ach);
+    setEditMemberId(ach.member_id);
+    setEditTitle(ach.title);
+    setEditCategory(ach.category);
+    setEditDescription(ach.description || '');
+    setBadgeIconEdit(ach.badge_icon || 'Trophy');
+    setEditAchievementDate(ach.achievement_date ? new Date(ach.achievement_date).toISOString().split('T')[0] : '');
+    setEditProofUrl(ach.proof_url || '');
+    setEditIsFeatured(ach.is_featured);
+    setShowEditModal(true);
+  };
+
+  const handleUpdateAchievement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAchievement || !editMemberId) return;
+    try {
+      await api.achievements.update(editingAchievement.id, {
+        member_id: editMemberId,
+        title: editTitle,
+        category: editCategory,
+        description: editDescription,
+        badge_icon: editBadgeIcon,
+        achievement_date: editAchievementDate,
+        proof_url: editProofUrl,
+        is_featured: editIsFeatured,
+      });
+      setShowEditModal(false);
+      setEditingAchievement(null);
+      setToast({ message: `Accolade "${editTitle}" updated successfully`, type: 'success' });
+      loadData();
+    } catch (err: any) {
+      setToast({ message: err.response?.data?.detail || 'Failed to update accolade', type: 'error' });
+    }
+  };
+
+  const handleDeleteAchievement = async () => {
+    if (!achievementToDelete) return;
+    try {
+      await api.achievements.delete(achievementToDelete.id);
+      setShowDeleteDialog(false);
+      setToast({ message: `Accolade "${achievementToDelete.title}" removed successfully`, type: 'success' });
+      setAchievementToDelete(null);
+      loadData();
+    } catch (err: any) {
+      setToast({ message: err.response?.data?.detail || 'Failed to delete accolade', type: 'error' });
+    }
+  };
+
   const filteredAchievements = achievements.filter(ach => {
     const matchCat = selectedCategory === 'All' || ach.category === selectedCategory;
     const matchSearch = ach.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -105,213 +177,250 @@ export const AchievementsPage: React.FC = () => {
   });
 
   const featuredList = achievements.filter(a => a.is_featured);
+  const canAward = hasRole(['President', 'Vice President', 'Domain Head']);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center space-x-2">
-            <span>Hall of Fame & Member Accolades</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-              {achievements.length} Honors
-            </span>
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            National hackathon titles, inter-college coding medals, open source deployments, and leadership awards.
-          </p>
-        </div>
-        {hasRole(['President', 'Vice President', 'Domain Head']) && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Award Accolade</span>
-          </button>
-        )}
-      </div>
+      {/* Section 9 Page Header */}
+      <PageHeader
+        title="Achievements"
+        description="National hackathon titles, inter-college coding medals, open source deployments, and student accolades."
+        searchProps={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: 'Search honors by recipient, competition title...'
+        }}
+        filterProps={{
+          filters: [
+            {
+              key: 'category',
+              label: 'Category',
+              value: selectedCategory,
+              onChange: setSelectedCategory,
+              options: CATEGORIES.map(c => ({ label: c, value: c }))
+            }
+          ]
+        }}
+        primaryAction={
+          canAward
+            ? {
+                label: 'Award Accolade',
+                icon: <Plus className="w-4 h-4" />,
+                onClick: () => setShowAddModal(true)
+              }
+            : undefined
+        }
+      />
 
-      {/* Featured Spotlight Carousel / Banner */}
+      {/* Featured Spotlight Section */}
       {featuredList.length > 0 && (
-        <div className="p-5 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-purple-500/10 border border-amber-300/40 dark:border-amber-800/50 rounded-2xl space-y-3">
+        <div className="p-5 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-amber-500/10 border border-blue-200/50 dark:border-blue-900/50 rounded-2xl space-y-3">
           <div className="flex items-center space-x-2">
             <Sparkles className="w-4 h-4 text-amber-500" />
-            <h2 className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-300">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white">
               Featured Hall of Fame Spotlights
             </h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {featuredList.slice(0, 3).map((feat) => (
-              <div
+              <Card
                 key={feat.id}
-                className="p-4 bg-white/90 dark:bg-slate-900/90 border border-amber-200 dark:border-amber-900/60 rounded-xl shadow-xs space-y-2"
+                className="p-4 bg-white/95 dark:bg-slate-900/95 space-y-2 shadow-xs"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                     {feat.category}
                   </span>
                   <Trophy className="w-4 h-4 text-amber-500" />
                 </div>
-                <div className="font-bold text-sm text-slate-900 dark:text-white leading-snug">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white line-clamp-1">
                   {feat.title}
-                </div>
-                <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-                  {feat.member_name}
-                </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                   {feat.description}
                 </p>
-              </div>
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <div className="flex items-center space-x-2">
+                    <Avatar name={feat.member_name || 'Member'} size="xs" />
+                    <strong className="text-slate-800 dark:text-slate-200">{feat.member_name}</strong>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-slate-400 text-[11px] font-mono mr-1">
+                      {new Date(feat.achievement_date).toLocaleDateString()}
+                    </span>
+                    {canAward && (
+                      <div className="flex items-center space-x-0.5">
+                        <button
+                          onClick={() => handleOpenEdit(feat)}
+                          title="Edit Accolade"
+                          className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAchievementToDelete(feat);
+                            setShowDeleteDialog(true);
+                          }}
+                          title="Delete Accolade"
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
             ))}
           </div>
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
-            {CATEGORIES.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`text-xs px-3 py-1.5 rounded-lg transition-colors font-medium ${
-                  selectedCategory === cat
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative min-w-[240px]">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search recipient, competition..."
-              className="w-full text-xs pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Achievements Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {loading ? (
-          <div className="col-span-full py-16 text-center text-slate-400 text-xs">
-            Loading honors ledger...
-          </div>
-        ) : filteredAchievements.length === 0 ? (
-          <div className="col-span-full py-16 text-center text-slate-400 text-xs">
-            No achievements recorded in this category.
-          </div>
-        ) : (
-          filteredAchievements.map((item) => (
-            <div
-              key={item.id}
-              className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all flex flex-col justify-between space-y-3"
+      {/* Main Grid */}
+      {loading ? (
+        <LoadingState message="Loading member honors and hall of fame..." />
+      ) : filteredAchievements.length === 0 ? (
+        <EmptyState
+          title="No Accolades Found"
+          description="No awards match your search. Add a new achievement to recognize outstanding student contributions."
+          action={
+            canAward
+              ? {
+                  label: 'Award Accolade',
+                  icon: <Plus className="w-4 h-4" />,
+                  onClick: () => setShowAddModal(true)
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredAchievements.map((ach) => (
+            <Card
+              key={ach.id}
+              className="p-5 hover:border-blue-400 dark:hover:border-blue-500/50 transition-all flex flex-col justify-between shadow-xs space-y-4"
             >
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    {item.category}
+                  <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                    {ach.category}
                   </span>
-                  <div className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400">
-                    <Medal className="w-4 h-4" />
+                  <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400 flex items-center justify-center">
+                    <Trophy className="w-3.5 h-3.5" />
                   </div>
                 </div>
 
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white leading-tight">
-                  {item.title}
-                </h3>
-
-                <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-                  {item.member_name}
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {ach.title}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                    {ach.description}
+                  </p>
                 </div>
 
-                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  {item.description}
-                </p>
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center space-x-2">
+                    <Avatar name={ach.member_name || 'Member'} size="xs" />
+                    <strong className="text-slate-800 dark:text-slate-200">{ach.member_name}</strong>
+                  </div>
+                  <span className="text-slate-400 text-[11px]">
+                    {new Date(ach.achievement_date).toLocaleDateString()}
+                  </span>
+                </div>
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400">
-                <span className="flex items-center space-x-1">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>{item.achievement_date}</span>
-                </span>
-
-                {item.proof_url && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                {ach.proof_url ? (
                   <a
-                    href={item.proof_url}
+                    href={ach.proof_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center space-x-1 text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                    className="inline-flex items-center space-x-1 text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline"
                   >
-                    <span>Verification</span>
-                    <ExternalLink className="w-3 h-3" />
+                    <span>View Evidence</span>
+                    <ExternalLink className="w-3 h-3 ml-0.5" />
                   </a>
+                ) : <div />}
+
+                {canAward && (
+                  <div className="flex items-center space-x-1">
+                    <button
+                      onClick={() => handleOpenEdit(ach)}
+                      title="Edit Accolade"
+                      className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAchievementToDelete(ach);
+                        setShowDeleteDialog(true);
+                      }}
+                      title="Delete Accolade"
+                      className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )}
               </div>
-            </div>
-          ))
-        )}
-      </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
-      {/* Award Modal */}
+      {/* Award Accolade Modal */}
       <Modal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        title="Record Milestone / Award Accolade"
+        title="Bestow Club Accolade / Honor"
+        subtitle="Recognizes member technical excellence, hackathon wins, or major releases"
+        maxWidth="md"
       >
         <form onSubmit={handleCreateAchievement} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Select Recipient Member *
+              Select Member
             </label>
             <select
               required
               value={memberId || ''}
               onChange={(e) => setMemberId(Number(e.target.value))}
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">Select Club Member...</option>
+              <option value="">Select recipient member...</option>
               {members.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.full_name || m.name} ({m.college_id}) - {m.domain_name || 'General Member'}
-                </option>
+                <option key={m.id} value={m.id}>{m.full_name} ({m.domain_name || 'Member'})</option>
               ))}
             </select>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Achievement Title *
+              Honor Title
             </label>
             <input
               type="text"
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. 1st Place - Smart India Hackathon 2025"
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="e.g. 1st Place - Smart India Hackathon 2026"
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Category *
+                Category
               </label>
               <select
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {CATEGORIES.filter(c => c !== 'All').map(c => (
                   <option key={c} value={c}>{c}</option>
@@ -320,74 +429,226 @@ export const AchievementsPage: React.FC = () => {
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Date of Achievement
+                Date Awarded
               </label>
               <input
                 type="date"
                 required
                 value={achievementDate}
                 onChange={(e) => setAchievementDate(e.target.value)}
-                className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Description & Highlights
+              Achievement Summary
             </label>
             <textarea
-              rows={2}
+              rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Awarded $2,000 cash prize for autonomous drone swarm navigation system."
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="Project delivered, competition scale, prize money, or contribution scope..."
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Proof URL / Certificate / Press Link
+              Proof / Press Release / Repository Link (Optional)
             </label>
             <input
               type="url"
               value={proofUrl}
               onChange={(e) => setProofUrl(e.target.value)}
-              placeholder="https://sih.gov.in/winners/2025"
-              className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
+              placeholder="https://..."
+              className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          <div className="flex items-center space-x-2 pt-1">
-            <input
-              type="checkbox"
-              id="featureCheck"
-              checked={isFeatured}
-              onChange={(e) => setIsFeatured(e.target.checked)}
-              className="w-4 h-4 rounded text-amber-500 focus:ring-amber-500"
-            />
-            <label htmlFor="featureCheck" className="text-xs font-medium text-slate-700 dark:text-slate-300">
-              Pin to Hall of Fame Featured Spotlight banner
+          <div className="pt-2">
+            <label className="flex items-center space-x-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isFeatured}
+                onChange={(e) => setIsFeatured(e.target.checked)}
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span>Pin as Featured Hall of Fame Spotlight</span>
             </label>
           </div>
 
-          <div className="flex justify-end space-x-2 pt-3">
-            <button
+          <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setShowAddModal(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
+              variant="primary"
             >
-              Record Honor
-            </button>
+              Bestow Honor
+            </Button>
           </div>
         </form>
       </Modal>
+
+      {/* Edit Accolade Modal */}
+      {editingAchievement && (
+        <Modal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingAchievement(null);
+          }}
+          title={`Edit Accolade: ${editingAchievement.title}`}
+          subtitle="Update recipient, achievement details, date, or spotlight status"
+          maxWidth="md"
+        >
+          <form onSubmit={handleUpdateAchievement} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Recipient Member
+              </label>
+              <select
+                required
+                value={editMemberId || ''}
+                onChange={(e) => setEditMemberId(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select recipient member...</option>
+                {members.map(m => (
+                  <option key={m.id} value={m.id}>{m.full_name} ({m.domain_name || 'Member'})</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Honor Title
+              </label>
+              <input
+                type="text"
+                required
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Category
+                </label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {CATEGORIES.filter(c => c !== 'All').map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Date Awarded
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={editAchievementDate}
+                  onChange={(e) => setEditAchievementDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Achievement Summary
+              </label>
+              <textarea
+                rows={3}
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Proof / Press Release / Repository Link (Optional)
+              </label>
+              <input
+                type="url"
+                value={editProofUrl}
+                onChange={(e) => setEditProofUrl(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl text-sm border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="pt-2">
+              <label className="flex items-center space-x-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editIsFeatured}
+                  onChange={(e) => setEditIsFeatured(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>Pin as Featured Hall of Fame Spotlight</span>
+              </label>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingAchievement(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+              >
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={showDeleteDialog}
+        title="Delete Accolade"
+        message={`Are you sure you want to delete accolade "${achievementToDelete?.title}" for ${achievementToDelete?.member_name}? This action cannot be undone.`}
+        confirmLabel="Delete Accolade"
+        confirmVariant="danger"
+        onConfirm={handleDeleteAchievement}
+        onCancel={() => {
+          setShowDeleteDialog(false);
+          setAchievementToDelete(null);
+        }}
+      />
+
+      {/* Toast Notification */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   );
 };

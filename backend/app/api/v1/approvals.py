@@ -46,9 +46,23 @@ def get_all_proposals(
     stage: Optional[str] = None,
     proposal_type: Optional[str] = None,
     proposer_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = db.query(ApprovalProposal)
+    user_role = current_user.role.name if current_user.role else "Member"
+    user_member_id = current_user.member.id if current_user.member else 0
+
+    if user_role == "Member":
+        query = query.filter(ApprovalProposal.proposer_id == user_member_id)
+    elif user_role in ["Domain Head", "Technical Lead"]:
+        # Domain head can see proposals they submitted or proposals at Domain Review stage
+        query = query.filter(
+            or_(
+                ApprovalProposal.proposer_id == user_member_id,
+                ApprovalProposal.current_stage == "Domain Review"
+            )
+        )
 
     if status_filter:
         query = query.filter(ApprovalProposal.status == status_filter)
@@ -56,7 +70,7 @@ def get_all_proposals(
         query = query.filter(ApprovalProposal.current_stage == stage)
     if proposal_type:
         query = query.filter(ApprovalProposal.proposal_type == proposal_type)
-    if proposer_id:
+    if proposer_id and user_role not in ["Member"]:
         query = query.filter(ApprovalProposal.proposer_id == proposer_id)
 
     proposals = query.order_by(desc(ApprovalProposal.created_at)).all()
@@ -64,10 +78,23 @@ def get_all_proposals(
 
 
 @router.get("/{proposal_id}", response_model=ApprovalProposalResponse)
-def get_proposal_by_id(proposal_id: int, db: Session = Depends(get_db)):
+def get_proposal_by_id(
+    proposal_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     p = db.query(ApprovalProposal).filter(ApprovalProposal.id == proposal_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Proposal not found")
+
+    user_role = current_user.role.name if current_user.role else "Member"
+    user_member_id = current_user.member.id if current_user.member else 0
+    if user_role == "Member" and p.proposer_id != user_member_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: You are not authorized to inspect this approval proposal."
+        )
+
     return build_proposal_response(p)
 
 

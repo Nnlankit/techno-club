@@ -1,4 +1,5 @@
 export type UserRole = 
+  | 'Super Admin'
   | 'President' 
   | 'Vice President' 
   | 'Domain Head' 
@@ -37,6 +38,81 @@ export interface User {
   domain_id?: number;
   domain_name?: string;
   role_title?: string;
+  phone?: string;
+  department?: string;
+  year_semester?: string;
+  bio?: string;
+  skills?: string[];
+  github_url?: string;
+  linkedin_url?: string;
+  joining_date?: string;
+  last_login?: string;
+  status?: string;
+  active_projects_count?: number;
+  completed_tasks_count?: number;
+  events_participated_count?: number;
+  achievements_count?: number;
+}
+
+export interface PasswordChangePayload {
+  current_password: string;
+  new_password: string;
+  confirm_password?: string;
+}
+
+export interface ProfileUpdatePayload {
+  full_name?: string;
+  phone?: string;
+  department?: string;
+  year_semester?: string;
+  bio?: string;
+  skills?: string[];
+  github_url?: string;
+  linkedin_url?: string;
+  avatar_url?: string;
+}
+
+export interface SecurityLogItem {
+  id: number;
+  action: string;
+  description: string;
+  ip_address?: string;
+  timestamp: string;
+}
+
+export interface ReportsToOption {
+  id: number;
+  name?: string;
+  full_name: string;
+  email?: string;
+  role: string;
+  role_title?: string | null;
+  domain_id?: number | null;
+  domain_name?: string | null;
+}
+
+export interface CreateMemberPayload {
+  full_name: string;
+  email: string;
+  password: string;
+  role: string;
+  role_id?: number;
+  designation?: string;
+  department?: string;
+  domain_id?: number;
+  reports_to_id?: number;
+  phone?: string;
+  college_id?: string;
+  year?: string;
+  semester?: string;
+  year_semester?: string;
+  skills?: string[];
+  joining_date?: string;
+  avatar_url?: string;
+  bio?: string;
+  github_url?: string;
+  linkedin_url?: string;
+  status?: string;
 }
 
 export interface Member {
@@ -52,7 +128,13 @@ export interface Member {
   domain_id?: number;
   domain_name?: string;
   role_title: string;
-  status: 'Active' | 'Inactive' | 'Alumni' | 'Suspended';
+  role_name?: string;
+  role?: string;
+  designation?: string;
+  reports_to_id?: number | null;
+  reports_to_name?: string | null;
+  reports_to_role?: string | null;
+  status: 'Active' | 'Inactive' | 'Alumni' | 'Suspended' | 'Deactivated';
   skills: string[];
   avatar_url?: string;
   bio?: string;
@@ -171,6 +253,8 @@ export interface Hackathon {
   mentors: Array<{ name: string; expertise?: string }>;
   judges: Array<{ name: string; org?: string }>;
   prizes: HackathonPrize[];
+  tagline?: string;
+  prize_pool?: number;
   banner_url?: string;
   teams_count: number;
   submissions_count: number;
@@ -567,7 +651,7 @@ export interface MemberDashboardStats {
   pending_tasks_count: number;
   my_projects_count: number;
   events_registered_count: number;
-  events_attended_count: number;
+  events_attended_count?: number;
   achievements_count: number;
   certificates_count: number;
   unread_notifications_count: number;
@@ -575,6 +659,21 @@ export interface MemberDashboardStats {
   my_projects: Array<{ id: number; name: string; status: string; priority: string; role: string; target_date: string }>;
   upcoming_events: Array<{ id: number; name: string; event_type: string; start_time: string; venue: string }>;
   recent_achievements: Array<{ id: number; title: string; category: string; badge_icon: string }>;
+}
+
+export interface DomainDashboardStats {
+  domain_id: number;
+  domain_name: string;
+  members_count: number;
+  active_projects_count: number;
+  upcoming_activities_count: number;
+  pending_tasks_count: number;
+  domain_projects: Array<{ id: number; name: string; status: string; priority: string; lead_name?: string; target_date?: string; tasks_count: number }>;
+  domain_tasks: Array<{ id: number; title: string; status: string; priority: string; due_date?: string; assignee_name?: string }>;
+  upcoming_events: Array<{ id: number; name: string; event_type: string; start_time: string; venue: string }>;
+  team_members: Array<{ id: number; full_name: string; role_title: string; avatar_url?: string; email: string; status: string }>;
+  recent_activities: Array<{ id: number; title: string; activity_type: string; status: string; date: string }>;
+  announcements: Array<{ id: number; title: string; priority: string; created_at: string }>;
 }
 
 export interface SearchResultItem {

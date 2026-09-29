@@ -12,7 +12,7 @@ from app.models.member_domain import Member
 from app.models.event_hackathon import Event, Hackathon
 from app.models.operations import Certificate
 from app.schemas.operations import (
-    CertificateCreate, CertificateResponse, CertificateVerifyResponse
+    CertificateCreate, CertificateUpdate, CertificateResponse, CertificateVerifyResponse
 )
 from app.services.certificate_service import generate_pdf_certificate
 from app.services.audit_service import log_audit_event
@@ -44,11 +44,16 @@ def get_all_certificates(
     recipient_email: Optional[str] = None,
     event_id: Optional[int] = None,
     certificate_type: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = db.query(Certificate)
-    if recipient_email:
+    user_role = current_user.role.name if current_user.role else "Member"
+    if user_role == "Member":
+        query = query.filter(Certificate.recipient_email == current_user.email)
+    elif recipient_email:
         query = query.filter(Certificate.recipient_email == recipient_email)
+
     if event_id:
         query = query.filter(Certificate.event_id == event_id)
     if certificate_type:
@@ -131,20 +136,111 @@ def verify_certificate(code_or_id: str, db: Session = Depends(get_db)):
             certificate_id=cert.certificate_id,
             title=cert.title,
             recipient_name=cert.recipient_name,
+            recipient_email=cert.recipient_email,
             certificate_type=cert.certificate_type,
             issue_date=cert.issue_date,
             status=cert.status,
+            verification_code=cert.verification_code,
+            file_url=cert.file_url,
             verification_message=f"Certificate status is {cert.status}. This credential has been revoked."
         )
+
+    cert_payload = {
+        "certificate_id": cert.certificate_id,
+        "title": cert.title,
+        "recipient_name": cert.recipient_name,
+        "recipient_email": cert.recipient_email,
+        "certificate_type": cert.certificate_type,
+        "issue_date": cert.issue_date.isoformat() if cert.issue_date else None,
+        "status": cert.status,
+        "event_name": cert.event.name if cert.event else "Club Activity",
+        "verification_code": cert.verification_code,
+        "file_url": cert.file_url,
+    }
 
     return CertificateVerifyResponse(
         valid=True,
         certificate_id=cert.certificate_id,
         title=cert.title,
         recipient_name=cert.recipient_name,
+        recipient_email=cert.recipient_email,
         certificate_type=cert.certificate_type,
         issue_date=cert.issue_date,
         status=cert.status,
         event_name=cert.event.name if cert.event else "Club Activity",
-        verification_message="Official Authenticated Credential issued by Techno Club."
+        verification_code=cert.verification_code,
+        file_url=cert.file_url,
+        verification_message="Official Authenticated Credential issued by Techno Club.",
+        certificate=cert_payload
     )
+
+
+@router.put("/{certificate_id}", response_model=CertificateResponse)
+def update_certificate(
+    certificate_id: int,
+    payload: CertificateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head"]))
+):
+    cert = db.query(Certificate).filter(Certificate.id == certificate_id).first()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    if "metadata_info" in update_data and update_data["metadata_info"] is not None:
+        update_data["metadata_info"] = json.dumps(update_data["metadata_info"])
+
+    for k, v in update_data.items():
+        setattr(cert, k, v)
+
+    log_audit_event(
+        db, current_user, "UPDATE_CERTIFICATE", "Certificate", cert.id,
+        f"Certificate {cert.certificate_id} updated by {current_user.email}",
+        diff=update_data
+    )
+
+    db.commit()
+    db.refresh(cert)
+    return build_cert_response(cert)
+
+
+@router.post("/{certificate_id}/revoke", response_model=CertificateResponse)
+def revoke_certificate(
+    certificate_id: int,
+    reason: Optional[str] = "Revoked by club leadership",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President"]))
+):
+    cert = db.query(Certificate).filter(Certificate.id == certificate_id).first()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+
+    cert.status = "Revoked"
+    log_audit_event(
+        db, current_user, "REVOKE_CERTIFICATE", "Certificate", cert.id,
+        f"Certificate {cert.certificate_id} revoked by {current_user.email}. Reason: {reason}"
+    )
+
+    db.commit()
+    db.refresh(cert)
+    return build_cert_response(cert)
+
+
+@router.delete("/{certificate_id}")
+def delete_certificate(
+    certificate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President"]))
+):
+    cert = db.query(Certificate).filter(Certificate.id == certificate_id).first()
+    if not cert:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+
+    log_audit_event(
+        db, current_user, "DELETE_CERTIFICATE", "Certificate", cert.id,
+        f"Certificate {cert.certificate_id} deleted by {current_user.email}"
+    )
+
+    db.delete(cert)
+    db.commit()
+    return {"message": f"Certificate {cert.certificate_id} deleted successfully"}

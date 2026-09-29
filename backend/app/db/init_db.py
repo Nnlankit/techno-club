@@ -1,5 +1,13 @@
+import os
+import sys
+from pathlib import Path
+backend_dir = str(Path(__file__).resolve().parent.parent.parent)
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
 import json
 from datetime import datetime, timedelta, timezone
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.core.security import get_password_hash
 from app.models.user_role import Role, Permission, User, role_permissions
@@ -17,8 +25,50 @@ from app.models.operations import (
 
 
 def init_db(db: Session) -> None:
+    # 0. Ensure projects.project_lead_id is nullable if running SQLite
+    try:
+        bind = db.get_bind()
+        if bind and bind.dialect.name == "sqlite":
+            cols = db.execute(text("PRAGMA table_info(projects)")).fetchall()
+            for col in cols:
+                if col[1] == "project_lead_id" and col[3] == 1:
+                    db.execute(text("PRAGMA foreign_keys=OFF;"))
+                    db.execute(text("""
+                        CREATE TABLE projects_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name VARCHAR(150) NOT NULL,
+                            description TEXT NOT NULL,
+                            objective TEXT,
+                            domain_id INTEGER,
+                            secondary_domains TEXT,
+                            project_lead_id INTEGER,
+                            start_date DATETIME,
+                            target_date DATETIME,
+                            completed_date DATETIME,
+                            status VARCHAR(30) NOT NULL,
+                            priority VARCHAR(20) NOT NULL,
+                            milestones TEXT,
+                            repository_url VARCHAR(255),
+                            demo_url VARCHAR(255),
+                            documentation_url VARCHAR(255),
+                            final_report TEXT,
+                            created_at DATETIME,
+                            updated_at DATETIME,
+                            FOREIGN KEY(domain_id) REFERENCES domains(id) ON DELETE SET NULL,
+                            FOREIGN KEY(project_lead_id) REFERENCES members(id) ON DELETE SET NULL
+                        );
+                    """))
+                    db.execute(text("INSERT INTO projects_new SELECT * FROM projects;"))
+                    db.execute(text("DROP TABLE projects;"))
+                    db.execute(text("ALTER TABLE projects_new RENAME TO projects;"))
+                    db.execute(text("PRAGMA foreign_keys=ON;"))
+                    db.commit()
+                    break
+    except Exception:
+        db.rollback()
     # 1. Create Roles if not present
     roles_data = [
+        {"name": "Super Admin", "description": "Highest level system administrator with full access to all roles, members, and operations", "is_system_role": True},
         {"name": "President", "description": "Full club-level executive control, approvals, analytics, and leadership", "is_system_role": True},
         {"name": "Vice President", "description": "Operational management, coordination, task monitoring, and approval review", "is_system_role": True},
         {"name": "Domain Head", "description": "Domain-level lead managing domain projects, tasks, resources, and members", "is_system_role": True},
@@ -77,7 +127,8 @@ def init_db(db: Session) -> None:
             db.flush()
         perms_dict[code] = perm
 
-    # Assign all permissions to President
+    # Assign all permissions to Super Admin & President
+    roles["Super Admin"].permissions = list(perms_dict.values())
     roles["President"].permissions = list(perms_dict.values())
     
     # VP has operational permissions
@@ -130,6 +181,19 @@ def init_db(db: Session) -> None:
     default_pw_hash = get_password_hash("TechnoClub@2026")
 
     users_seed = [
+        {
+            "email": "admin@technoclub.org",
+            "full_name": "Vikramaditya Rao",
+            "college_id": "SUPERADMIN01",
+            "role": "Super Admin",
+            "role_title": "Super Administrator",
+            "dept": "Club Administration",
+            "year": "Staff / Admin",
+            "domain": "CLOUD",
+            "skills": ["System Administration", "Security", "Infrastructure", "Governance"],
+            "bio": "Platform Super Administrator managing platform integrity, security, and club governance.",
+            "is_superuser": True
+        },
         {
             "email": "president@technoclub.org",
             "full_name": "Aarav Sharma",
@@ -908,3 +972,13 @@ def init_db(db: Session) -> None:
         db.commit()
 
     print(">> Database initialization completed with rich college techno club seed data.")
+
+
+if __name__ == "__main__":
+    from app.core.database import SessionLocal, engine, Base
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        init_db(db)
+    finally:
+        db.close()

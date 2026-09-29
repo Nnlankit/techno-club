@@ -59,7 +59,27 @@ def get_domain_by_id(domain_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{domain_id}/members", response_model=List[MemberResponse])
-def get_domain_members(domain_id: int, db: Session = Depends(get_db)):
+def get_domain_members(
+    domain_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    user_role = current_user.role.name if current_user.role else "Member"
+    if user_role in ["Domain Head", "Technical Lead"]:
+        user_domain_id = current_user.member.domain_id if current_user.member else None
+        if user_domain_id and domain_id != user_domain_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Domain Heads cannot inspect rosters of other domains."
+            )
+    elif user_role == "Member":
+        user_domain_id = current_user.member.domain_id if current_user.member else None
+        if user_domain_id and domain_id != user_domain_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Members cannot inspect rosters of other domains."
+            )
+
     members = db.query(Member).filter(Member.domain_id == domain_id).all()
     return [build_member_response(m, db) for m in members]
 
@@ -128,3 +148,52 @@ def update_domain(
     db.commit()
     db.refresh(domain)
     return build_domain_response(domain, db)
+
+
+@router.delete("/{domain_id}")
+def delete_domain(
+    domain_id: int,
+    archive: bool = True,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President"]))
+):
+    domain = db.query(Domain).filter(Domain.id == domain_id).first()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Domain not found")
+
+    if archive:
+        domain.is_active = False
+        log_audit_event(
+            db, current_user, "ARCHIVE", "Domain", domain.id,
+            f"Domain '{domain.name}' archived (deactivated) by {current_user.email}"
+        )
+        db.commit()
+        return {"message": f"Domain '{domain.name}' archived successfully", "archived": True}
+
+    # Permanent delete checks
+    members_count = db.query(Member).filter(Member.domain_id == domain.id).count()
+    projects_count = db.query(Project).filter(Project.domain_id == domain.id).count()
+    tasks_count = db.query(Task).filter(Task.domain_id == domain.id).count()
+    events_count = db.query(Event).filter(Event.domain_id == domain.id).count()
+
+    if (members_count > 0 or projects_count > 0 or tasks_count > 0 or events_count > 0) and not force:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot permanently delete domain '{domain.name}' because it contains {members_count} members, {projects_count} projects, {tasks_count} tasks, and {events_count} events. Please archive it or specify force=true."
+        )
+
+    # Safe cascade/null out
+    db.query(Member).filter(Member.domain_id == domain.id).update({"domain_id": None}, synchronize_session=False)
+    db.query(Project).filter(Project.domain_id == domain.id).update({"domain_id": None}, synchronize_session=False)
+    db.query(Task).filter(Task.domain_id == domain.id).update({"domain_id": None}, synchronize_session=False)
+    db.query(Event).filter(Event.domain_id == domain.id).update({"domain_id": None}, synchronize_session=False)
+
+    log_audit_event(
+        db, current_user, "DELETE", "Domain", domain.id,
+        f"Domain '{domain.name}' permanently deleted by {current_user.email}"
+    )
+
+    db.delete(domain)
+    db.commit()
+    return {"message": f"Domain '{domain.name}' permanently deleted", "archived": False}

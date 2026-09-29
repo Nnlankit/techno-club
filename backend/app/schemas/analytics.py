@@ -38,7 +38,7 @@ class MemberDashboardStatsResponse(BaseModel):
     pending_tasks_count: int
     my_projects_count: int
     events_registered_count: int
-    events_attended_count: int
+    events_attended_count: Optional[int] = 0
     achievements_count: int
     certificates_count: int
     unread_notifications_count: int
@@ -46,6 +46,21 @@ class MemberDashboardStatsResponse(BaseModel):
     my_projects: List[Dict[str, Any]] = []
     upcoming_events: List[Dict[str, Any]] = []
     recent_achievements: List[Dict[str, Any]] = []
+
+
+class DomainDashboardStatsResponse(BaseModel):
+    domain_id: int
+    domain_name: str
+    members_count: int
+    active_projects_count: int
+    upcoming_activities_count: int
+    pending_tasks_count: int
+    domain_projects: List[Dict[str, Any]] = []
+    domain_tasks: List[Dict[str, Any]] = []
+    upcoming_events: List[Dict[str, Any]] = []
+    team_members: List[Dict[str, Any]] = []
+    recent_activities: List[Dict[str, Any]] = []
+    announcements: List[Dict[str, Any]] = []
 
 
 class GlobalSearchResultItem(BaseModel):

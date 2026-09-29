@@ -40,6 +40,7 @@ class Member(Base):
     department = Column(String(100), index=True, nullable=False)
     year_semester = Column(String(50), nullable=False)
     domain_id = Column(Integer, ForeignKey("domains.id", ondelete="SET NULL"), nullable=True)
+    reports_to_id = Column(Integer, ForeignKey("members.id", ondelete="SET NULL"), nullable=True)
     role_title = Column(String(100), default="Member", nullable=False)
     status = Column(String(20), default="Active", index=True, nullable=False)  # Active, Inactive, Alumni, Suspended
     skills = Column(Text, default="[]")  # JSON encoded list of strings
@@ -54,6 +55,7 @@ class Member(Base):
     # Relationships
     user = relationship("User", back_populates="member")
     domain = relationship("Domain", foreign_keys=[domain_id], back_populates="members")
+    reports_to = relationship("Member", remote_side=[id], foreign_keys=[reports_to_id], backref="direct_reports")
     assigned_tasks = relationship("Task", foreign_keys="[Task.assignee_id]", back_populates="assignee")
     created_tasks = relationship("Task", foreign_keys="[Task.creator_id]", back_populates="creator")
     project_memberships = relationship("ProjectMember", back_populates="member", cascade="all, delete-orphan")

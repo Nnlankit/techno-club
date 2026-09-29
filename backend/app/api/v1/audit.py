@@ -18,7 +18,7 @@ def get_audit_logs(
     action: Optional[str] = None,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(["President", "Vice President", "Faculty Coordinator", "Treasurer", "Technical Lead"]))
+    current_user: User = Depends(require_roles(["Super Admin", "President", "Vice President", "Faculty Coordinator"]))
 ):
     query = db.query(AuditLog)
     if entity:

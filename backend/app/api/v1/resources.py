@@ -146,3 +146,71 @@ def assign_resource_to_member(
     db.commit()
     db.refresh(res)
     return build_resource_response(res)
+
+
+@router.post("/{resource_id}/return", response_model=ResourceResponse)
+def return_resource(
+    resource_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Domain Head", "Treasurer"]))
+):
+    res = db.query(Resource).filter(Resource.id == resource_id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    # Find active assignment
+    assignment = db.query(ResourceAssignment).filter(
+        ResourceAssignment.resource_id == resource_id,
+        ResourceAssignment.status == "Active"
+    ).order_by(ResourceAssignment.assigned_date.desc()).first()
+
+    if assignment:
+        assignment.status = "Returned"
+        assignment.returned_date = datetime.now(timezone.utc)
+
+    if res.available_quantity < res.quantity:
+        res.available_quantity += 1
+
+    if res.available_quantity == res.quantity:
+        res.status = "Available"
+        res.assigned_to_id = None
+    elif res.available_quantity > 0:
+        res.status = "Available"
+
+    log_audit_event(
+        db, current_user, "RETURN", "Resource", res.id,
+        f"Resource '{res.name}' returned by/for member"
+    )
+
+    db.commit()
+    db.refresh(res)
+    return build_resource_response(res)
+
+
+@router.delete("/{resource_id}")
+def delete_resource(
+    resource_id: int,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(["President", "Vice President", "Treasurer"]))
+):
+    res = db.query(Resource).filter(Resource.id == resource_id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    if res.available_quantity < res.quantity and not force:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Resource '{res.name}' currently has units checked out / assigned. Please return units first or pass force=true."
+        )
+
+    db.query(ResourceAssignment).filter(ResourceAssignment.resource_id == resource_id).delete(synchronize_session=False)
+
+    log_audit_event(
+        db, current_user, "DELETE", "Resource", res.id,
+        f"Resource '{res.name}' ({res.identifier}) deleted by {current_user.email}"
+    )
+
+    db.delete(res)
+    db.commit()
+    return {"message": f"Resource '{res.name}' deleted successfully"}
