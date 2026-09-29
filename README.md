@@ -203,17 +203,34 @@ graph TD
 
 ## 🚀 Quick Start Guide
 
-### Option A: 1-Click Launch on Windows (Recommended for Local Dev)
+### Option A: 1-Click Automated Launch (Recommended)
 
-Simply double-click or run:
-```powershell
-.\start_platform.bat
+You can launch the entire stack (FastAPI Backend + React Vite Frontend + Seed Database + Browser) with a single command:
+
+**Option 1: Windows Batch (Command Prompt or Double-Click):**
+```cmd
+start.bat
 ```
-or in PowerShell:
+*(or `start_platform.bat`)*
+
+**Option 2: PowerShell:**
 ```powershell
-.\start_platform.ps1
+.\start.ps1
 ```
-This automatically initializes the seed database, starts the FastAPI backend on `http://localhost:8000`, starts the React Vite frontend on `http://localhost:5173`, and opens your default browser.
+*(or `.\start_platform.ps1`)*
+
+**Option 3: Unified Python Launcher (Cross-Platform Windows/macOS/Linux):**
+```bash
+python start.py
+```
+
+This automatically:
+1. Verifies virtual environments and installs missing packages (`pip`, `npm`).
+2. Initializes the database schema and default seed data.
+3. Launches the FastAPI backend service on `http://localhost:8000`.
+4. Launches the React Vite frontend portal on `http://localhost:5173`.
+5. Waits for health checks and automatically opens `http://localhost:5173` in your default browser.
+6. Pressing `Ctrl+C` in `start.py` cleanly terminates both frontend and backend processes.
 
 ---
 
